@@ -148,14 +148,87 @@ def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = D
         if row.play_state == "paused": bucket["paused"] += 1
         if row.user_id: users.add(row.user_id)
         if row.item_id: titles.add(row.item_id)
+    # Fill missing dates with zeroes so chart clients can render a continuous timeline.
+    today = datetime.now(timezone.utc).date()
+    first_day = today - timedelta(days=days - 1)
+    daily = []
+    for offset in range(days):
+        day = (first_day + timedelta(days=offset)).isoformat()
+        daily.append(by_day.get(day, {"date": day, "snapshots": 0, "playing": 0, "paused": 0}))
     return {
         "days": days, "snapshot_count": len(rows), "observed_users": len(users),
         "observed_titles": len(titles),
         "playing_samples": sum(1 for row in rows if row.play_state == "playing"),
         "paused_samples": sum(1 for row in rows if row.play_state == "paused"),
-        "daily": sorted(by_day.values(), key=lambda x: x["date"]),
+        "daily": daily,
         "accuracy_note": "Periodic session observations only; not exact plays, completion, or watch duration.",
     }
+
+@app.get("/api/v1/reports/top-titles", dependencies=[Depends(require_api_key)])
+def reports_top_titles(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
+    grouped = {}
+    for row in rows:
+        if not row.item_id:
+            continue
+        item = grouped.setdefault(row.item_id, {
+            "item_id": row.item_id, "item_name": row.item_name or "Unknown title",
+            "media_type": row.media_type or "Unknown", "snapshot_count": 0,
+            "playing_samples": 0, "paused_samples": 0, "users": set(),
+        })
+        item["snapshot_count"] += 1
+        if row.play_state == "playing":
+            item["playing_samples"] += 1
+        elif row.play_state == "paused":
+            item["paused_samples"] += 1
+        if row.user_id:
+            item["users"].add(row.user_id)
+    ranked = sorted(grouped.values(), key=lambda item: item["snapshot_count"], reverse=True)[:limit]
+    return {
+        "days": days,
+        "items": [{**item, "observed_users": len(item.pop("users"))} for item in ranked],
+        "ranking_basis": "snapshot_count",
+        "accuracy_note": "Ranked by periodic observations, not exact plays, completion, or watch duration.",
+    }
+
+
+@app.get("/api/v1/reports/top-users", dependencies=[Depends(require_api_key)])
+def reports_top_users(
+    days: int = Query(default=30, ge=1, le=365),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
+    grouped = {}
+    for row in rows:
+        if not row.user_id:
+            continue
+        user = grouped.setdefault(row.user_id, {
+            "user_id": row.user_id, "username": row.username or "Unknown user",
+            "snapshot_count": 0, "playing_samples": 0, "paused_samples": 0,
+            "titles": set(),
+        })
+        user["snapshot_count"] += 1
+        if row.play_state == "playing":
+            user["playing_samples"] += 1
+        elif row.play_state == "paused":
+            user["paused_samples"] += 1
+        if row.item_id:
+            user["titles"].add(row.item_id)
+    ranked = sorted(grouped.values(), key=lambda user: user["snapshot_count"], reverse=True)[:limit]
+    return {
+        "days": days,
+        "users": [{**user, "observed_titles": len(user.pop("titles"))} for user in ranked],
+        "ranking_basis": "snapshot_count",
+        "accuracy_note": "Ranked by periodic observations, not exact plays or total watch time.",
+    }
+
 
 @app.get("/api/v1/items/{item_id}/analytics", dependencies=[Depends(require_api_key)])
 def item_analytics(item_id: str, db: Session = Depends(get_db)):
