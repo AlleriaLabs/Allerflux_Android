@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -50,6 +51,7 @@ private data class Overview(
 private data class SessionRow(val user: String, val title: String, val type: String, val state: String, val position: Long)
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
+private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
 
 private suspend fun apiGet(base: String, key: String, path: String): String = withContext(Dispatchers.IO) {
     val c = URL(base.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
@@ -87,6 +89,12 @@ private suspend fun loadLibrary(base: String, key: String): LibraryStats {
         j.optInt("song_count"), j.optInt("album_count"), j.optInt("artist_count"))
 }
 
+private suspend fun loadReportStats(base: String, key: String): ReportStats {
+    val j = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=30"))
+    return ReportStats(j.optInt("snapshot_count"), j.optInt("observed_users"), j.optInt("observed_titles"),
+        j.optInt("playing_samples"), j.optInt("paused_samples"))
+}
+
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
     val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=200"))
     return (0 until a.length()).map {
@@ -106,6 +114,8 @@ fun AllerfluxApp(context: Context) {
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
     var library by remember { mutableStateOf(LibraryStats()) }
     var libraryError by remember { mutableStateOf("") }
+    var reportStats by remember { mutableStateOf(ReportStats()) }
+    var reportError by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
@@ -131,7 +141,19 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
             try { library = loadLibrary(serverUrl, apiKey); libraryError = "" }
             catch (e: Exception) { libraryError = e.message ?: "Unable to load library inventory" }
+            try { reportStats = loadReportStats(serverUrl, apiKey); reportError = "" }
+            catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
             loading = false
+        }
+    }
+
+    LaunchedEffect(serverUrl, apiKey) {
+        if (serverUrl.isNotBlank() && apiKey.isNotBlank()) {
+            refresh()
+            while (true) {
+                delay(60_000)
+                refresh()
+            }
         }
     }
 
@@ -220,17 +242,18 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Reports") {
+                    if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load 30-day summary", reportError, "") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricCard("Snapshots", history.size.toString(), "Recent observations", Modifier.weight(1f))
-                        MetricCard("Observed users", history.map { it.user }.distinct().size.toString(), "In loaded history", Modifier.weight(1f))
+                        MetricCard("Snapshots", reportStats.snapshots.toString(), "Last 30 days", Modifier.weight(1f))
+                        MetricCard("Observed users", reportStats.users.toString(), "Distinct account IDs", Modifier.weight(1f))
                     } }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricCard("Playing samples", history.count { it.state == "playing" }.toString(), "Snapshot count", Modifier.weight(1f))
-                        MetricCard("Paused samples", history.count { it.state == "paused" }.toString(), "Snapshot count", Modifier.weight(1f))
+                        MetricCard("Observed titles", reportStats.titles.toString(), "Distinct item IDs", Modifier.weight(1f))
+                        MetricCard("Playing samples", reportStats.playing.toString(), "Snapshot count", Modifier.weight(1f))
                     } }
-                    if (historyError.isNotBlank()) item { InfoCard("REPORTS UNAVAILABLE", "Could not load history", historyError, "") }
-                    else item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
-                        "These values count stored snapshots, not unique plays, completed titles, or total watch time. A single long playback can contribute many observations.", "") }
+                    item { MetricCard("Paused samples", reportStats.paused.toString(), "Snapshot count", Modifier.fillMaxWidth()) }
+                    item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
+                        "These are 30-day snapshot estimates, not unique plays, completed titles, or total watch time. One long playback can contribute many observations.", "") }
                     item { SectionHeading("Recent observations") }
                     items(minOf(history.size, 30)) { i ->
                         val h = history[i]
