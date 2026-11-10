@@ -135,7 +135,9 @@ def history(limit: int = 100, db: Session = Depends(get_db)):
 
 @app.get("/api/v1/reports/summary", dependencies=[Depends(require_api_key)])
 def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = Depends(get_db)):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    today = datetime.now(timezone.utc).date()
+    first_day = today - timedelta(days=days - 1)
+    since = datetime(first_day.year, first_day.month, first_day.day, tzinfo=timezone.utc)
     rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
     by_day = {}
     users = set()
@@ -149,8 +151,6 @@ def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = D
         if row.user_id: users.add(row.user_id)
         if row.item_id: titles.add(row.item_id)
     # Fill missing dates with zeroes so chart clients can render a continuous timeline.
-    today = datetime.now(timezone.utc).date()
-    first_day = today - timedelta(days=days - 1)
     daily = []
     for offset in range(days):
         day = (first_day + timedelta(days=offset)).isoformat()
