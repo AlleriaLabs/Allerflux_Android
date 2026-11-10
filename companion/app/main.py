@@ -22,10 +22,31 @@ def item_info(s):
         status = "playing"
     else:
         status = "idle"
+
+    last_activity_raw = s.get("LastActivityDate") or s.get("LastPlaybackCheckIn")
+    last_activity = None
+    idle_seconds = None
+    if last_activity_raw:
+        try:
+            last_activity = datetime.fromisoformat(str(last_activity_raw).replace("Z", "+00:00"))
+            if last_activity.tzinfo is None:
+                last_activity = last_activity.replace(tzinfo=timezone.utc)
+            if status == "idle":
+                idle_seconds = max(0, int((datetime.now(timezone.utc) - last_activity).total_seconds()))
+        except (TypeError, ValueError):
+            last_activity = None
+
     return {
-        "session_id": s.get("Id", "unknown"),
+        "session_id": s.get("Id") or "unknown",
         "user_id": s.get("UserId"),
         "username": s.get("UserName"),
+        "device_name": s.get("DeviceName"),
+        "client_name": s.get("Client"),
+        "client_version": s.get("ApplicationVersion"),
+        "device_id": s.get("DeviceId"),
+        "remote_endpoint": s.get("RemoteEndPoint"),
+        "last_activity": last_activity.isoformat() if last_activity else None,
+        "idle_seconds": idle_seconds,
         "item_id": item.get("Id"),
         "item_name": item.get("Name"),
         "media_type": item.get("Type"),

@@ -51,7 +51,19 @@ private data class Overview(
     val connected: Boolean = false,
     val message: String = "Not configured"
 )
-private data class SessionRow(val user: String, val title: String, val type: String, val state: String, val position: Long)
+private data class SessionRow(
+    val user: String, val title: String, val type: String, val state: String, val position: Long,
+    val device: String, val client: String, val version: String, val lastActivity: String, val idleSeconds: Long?
+)
+private fun JSONObject.safeText(name: String, fallback: String): String {
+    val value = optString(name, "").trim()
+    return if (value.isBlank() || value == "null") fallback else value
+}
+private fun formatDuration(seconds: Long): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+}
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
@@ -89,8 +101,18 @@ private suspend fun loadSessions(base: String, key: String): List<SessionRow> {
     val a = JSONArray(apiGet(base, key, "/api/v1/sessions"))
     return (0 until a.length()).map {
         val j = a.getJSONObject(it)
-        SessionRow(j.optString("username", "Unknown user"), j.optString("item_name", "No media title"),
-            j.optString("media_type", "Media"), j.optString("play_state", "idle"), j.optLong("position_ticks"))
+        SessionRow(
+            j.safeText("username", "Unknown user"),
+            j.safeText("item_name", "Not playing"),
+            j.safeText("media_type", "No media information"),
+            j.safeText("play_state", "unknown"),
+            j.optLong("position_ticks"),
+            j.safeText("device_name", "Device unavailable"),
+            j.safeText("client_name", "Client unavailable"),
+            j.safeText("client_version", "Version unavailable"),
+            j.safeText("last_activity", "Last activity unavailable"),
+            if (j.has("idle_seconds") && !j.isNull("idle_seconds")) j.optLong("idle_seconds") else null
+        )
     }
 }
 
@@ -253,8 +275,18 @@ fun AllerfluxApp(context: Context) {
                         "Current Jellyfin sessions will appear here when users start playback.", "") }
                     else items(sessions.size) { i ->
                         val s = sessions[i]
-                        InfoCard(s.user, s.title, s.type + "  •  " + s.state.uppercase(),
-                            if (s.position > 0) "Position: " + (s.position / 10000000L / 60) + " min" else "")
+                        InfoCard(
+                            s.user,
+                            if (s.state == "idle") "Not playing" else s.title,
+                            "${s.state.uppercase()}  •  ${s.device}",
+                            buildString {
+                                append(s.client)
+                                if (s.version != "Version unavailable") append(" · " + s.version)
+                                if (s.state == "idle") append(" · Idle: " + (s.idleSeconds?.let { formatDuration(it) } ?: "duration unavailable"))
+                                else if (s.position > 0) append(" · Position: " + (s.position / 10000000L / 60) + " min")
+                                append(" · Last activity: " + s.lastActivity)
+                            }
+                        )
                     }
                 }
 
