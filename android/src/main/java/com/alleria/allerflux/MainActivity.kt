@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -45,34 +46,46 @@ private data class Overview(
     val connected: Boolean = false,
     val message: String = "Not configured"
 )
+private data class SessionRow(val user: String, val title: String, val type: String, val state: String, val position: Long)
+private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 
-private suspend fun fetchOverview(baseUrl: String, apiKey: String): Overview =
-    withContext(Dispatchers.IO) {
-        val endpoint = baseUrl.trim().trimEnd('/') + "/api/v1/overview"
-        val connection = (URL(endpoint).openConnection() as HttpURLConnection)
-        try {
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 8000
-            connection.readTimeout = 10000
-            connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("X-Allerflux-Key", apiKey)
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val body = stream.bufferedReader().use { it.readText() }
-            if (code !in 200..299) error("HTTP $code: " + runCatching { JSONObject(body).optString("detail") }.getOrDefault(body))
-            val json = JSONObject(body)
-            Overview(
-                users = json.optInt("registered_users", 0).toString(),
-                sessions = json.optInt("active_sessions", 0).toString(),
-                playing = json.optInt("currently_playing", 0).toString(),
-                paused = json.optInt("paused", 0).toString(),
-                connected = json.optBoolean("server_connected", false),
-                message = "Connected to Jellyfin"
-            )
-        } finally {
-            connection.disconnect()
-        }
+private suspend fun apiGet(base: String, key: String, path: String): String = withContext(Dispatchers.IO) {
+    val c = URL(base.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
+    try {
+        c.requestMethod = "GET"
+        c.connectTimeout = 8000
+        c.readTimeout = 10000
+        c.setRequestProperty("Accept", "application/json")
+        c.setRequestProperty("X-Allerflux-Key", key)
+        val code = c.responseCode
+        val stream = if (code in 200..299) c.inputStream else c.errorStream
+        val body = stream.bufferedReader().use { it.readText() }
+        if (code !in 200..299) error("HTTP " + code + ": " + runCatching { JSONObject(body).optString("detail") }.getOrDefault(body))
+        body
+    } finally { c.disconnect() }
+}
+private suspend fun loadOverview(base: String, key: String): Overview {
+    val j = JSONObject(apiGet(base, key, "/api/v1/overview"))
+    return Overview(j.optInt("registered_users").toString(), j.optInt("active_sessions").toString(),
+        j.optInt("currently_playing").toString(), j.optInt("paused").toString(),
+        j.optBoolean("server_connected"), "Connected to Jellyfin")
+}
+private suspend fun loadSessions(base: String, key: String): List<SessionRow> {
+    val a = JSONArray(apiGet(base, key, "/api/v1/sessions"))
+    return (0 until a.length()).map {
+        val j = a.getJSONObject(it)
+        SessionRow(j.optString("username", "Unknown user"), j.optString("item_name", "No media title"),
+            j.optString("media_type", "Media"), j.optString("play_state", "idle"), j.optLong("position_ticks"))
     }
+}
+private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
+    val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=200"))
+    return (0 until a.length()).map {
+        val j = a.getJSONObject(it)
+        HistoryRow(j.optString("user", "Unknown user"), j.optString("item_name", "Unknown title"),
+            j.optString("media_type", "Media"), j.optString("state", "unknown"), j.optString("captured_at"))
+    }
+}
 
 @Composable
 fun AllerfluxApp(context: Context) {
@@ -80,8 +93,12 @@ fun AllerfluxApp(context: Context) {
     var serverUrl by remember { mutableStateOf(prefs.getString("server_url", "") ?: "") }
     var apiKey by remember { mutableStateOf(prefs.getString("api_key", "") ?: "") }
     var overview by remember { mutableStateOf(Overview()) }
+    var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
+    var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
+    var activityError by remember { mutableStateOf("") }
+    var historyError by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf("Overview") }
     val scope = rememberCoroutineScope()
@@ -95,49 +112,35 @@ fun AllerfluxApp(context: Context) {
         scope.launch {
             loading = true
             error = ""
-            try {
-                overview = fetchOverview(serverUrl, apiKey)
-            } catch (e: Exception) {
-                overview = Overview(message = "Connection failed")
-                error = e.message ?: "Unable to connect"
-            } finally {
-                loading = false
-            }
+            try { overview = loadOverview(serverUrl, apiKey) }
+            catch (e: Exception) { overview = Overview(message = "Connection failed"); error = e.message ?: "Unable to load overview" }
+            try { sessions = loadSessions(serverUrl, apiKey); activityError = "" }
+            catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
+            try { history = loadHistory(serverUrl, apiKey); historyError = "" }
+            catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
+            loading = false
         }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(
-        background = Ink, surface = Panel, primary = Accent,
-        onBackground = Color.White, onSurface = Color.White
-    )) {
+    MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = Accent, onBackground = Color.White, onSurface = Color.White)) {
         Scaffold(containerColor = Ink, bottomBar = {
             NavigationBar(containerColor = Panel) {
                 listOf("Overview", "Activity", "Library", "Reports").forEach { tab ->
-                    NavigationBarItem(
-                        selected = selected == tab,
-                        onClick = { selected = tab },
-                        icon = {
-                            Icon(when (tab) {
-                                "Overview" -> Icons.Rounded.Dashboard
-                                "Activity" -> Icons.Rounded.PlayCircle
-                                "Library" -> Icons.Rounded.VideoLibrary
-                                else -> Icons.Rounded.QueryStats
-                            }, contentDescription = tab)
-                        },
+                    NavigationBarItem(selected = selected == tab, onClick = { selected = tab },
+                        icon = { Icon(when (tab) {
+                            "Overview" -> Icons.Rounded.Dashboard
+                            "Activity" -> Icons.Rounded.PlayCircle
+                            "Library" -> Icons.Rounded.VideoLibrary
+                            else -> Icons.Rounded.QueryStats
+                        }, contentDescription = tab) },
                         label = { Text(tab) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = Accent, selectedTextColor = Accent,
-                            indicatorColor = Color(0xFF203B42), unselectedTextColor = Muted
-                        )
-                    )
+                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Accent, selectedTextColor = Accent,
+                            indicatorColor = Color(0xFF203B42), unselectedTextColor = Muted))
                 }
             }
         }) { padding ->
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().background(Ink).padding(padding),
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
+                contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -145,89 +148,130 @@ fun AllerfluxApp(context: Context) {
                             Text("Allerflux", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                             Text("Your Media Server Intelligence", color = Muted, fontSize = 13.sp)
                         }
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Rounded.Settings, contentDescription = "Settings", tint = Color.White)
-                        }
+                        IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.Settings, "Settings", tint = Color.White) }
                     }
                 }
-                item { SectionHeading(if (selected == "Overview") "Server overview" else selected) }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { SectionHeading(when (selected) {
+                    "Overview" -> "Server overview"
+                    "Activity" -> "Live activity"
+                    "Library" -> "Media library"
+                    else -> "Usage reports"
+                }) }
+
+                if (selected == "Overview") {
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Registered users", overview.users, "Jellyfin accounts", Modifier.weight(1f))
                         MetricCard("Active sessions", overview.sessions, "Live sessions", Modifier.weight(1f))
-                    }
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    } }
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Playing now", overview.playing, "Currently playing", Modifier.weight(1f))
                         MetricCard("Paused", overview.paused, "Paused sessions", Modifier.weight(1f))
+                    } }
+                    item { InfoCard("COMPANION CONNECTION", overview.message,
+                        if (overview.connected) serverUrl else "Configure your companion URL and API key to load live server data.", error) }
+                    item { InfoCard("DATA COLLECTION", "Snapshot-based analytics",
+                        "The companion records periodic session observations. Snapshots are not exact playback events and do not establish watch duration or completion rates.", "") }
+                }
+
+                if (selected == "Activity") {
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Live sessions", sessions.size.toString(), "Current Jellyfin sessions", Modifier.weight(1f))
+                        MetricCard("Playing", sessions.count { it.state == "playing" }.toString(), "Active playback", Modifier.weight(1f))
+                    } }
+                    if (activityError.isNotBlank()) item { InfoCard("ACTIVITY UNAVAILABLE", "Could not load live sessions", activityError, "") }
+                    else if (sessions.isEmpty()) item { InfoCard("NO ACTIVE SESSIONS", "Nothing is streaming right now",
+                        "Current Jellyfin sessions will appear here when users start playback.", "") }
+                    else items(sessions.size) { i ->
+                        val s = sessions[i]
+                        InfoCard(s.user, s.title, s.type + "  •  " + s.state.uppercase(),
+                            if (s.position > 0) "Position: " + (s.position / 10000000L / 60) + " min" else "")
                     }
                 }
+
+                if (selected == "Library") {
+                    item { MetricCard("Registered users", overview.users, "Jellyfin accounts") }
+                    item { InfoCard("LIBRARY INVENTORY", "Library endpoint not yet available",
+                        "This tab is now separate from Overview. The current companion API exposes live sessions and snapshot history, but not library names, movie or episode totals, genres, or storage usage. Those require a companion API extension.", "") }
+                    item { InfoCard("PLANNED INVENTORY", "Movies  •  Shows  •  Episodes  •  Music",
+                        "The library screen is ready for the next backend integration. Existing companion connection settings are unchanged.", "") }
+                }
+
+                if (selected == "Reports") {
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Snapshots", history.size.toString(), "Recent observations", Modifier.weight(1f))
+                        MetricCard("Observed users", history.map { it.user }.distinct().size.toString(), "In loaded history", Modifier.weight(1f))
+                    } }
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Playing samples", history.count { it.state == "playing" }.toString(), "Snapshot count", Modifier.weight(1f))
+                        MetricCard("Paused samples", history.count { it.state == "paused" }.toString(), "Snapshot count", Modifier.weight(1f))
+                    } }
+                    if (historyError.isNotBlank()) item { InfoCard("REPORTS UNAVAILABLE", "Could not load history", historyError, "") }
+                    else item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
+                        "These values count stored snapshots, not unique plays, completed titles, or total watch time. A single long playback can contribute many observations.", "") }
+                    item { SectionHeading("Recent observations") }
+                    items(minOf(history.size, 30)) { i ->
+                        val h = history[i]
+                        InfoCard(h.title, h.user, h.type + "  •  " + h.state.uppercase(), h.time.replace("T", " ").take(19))
+                    }
+                    if (history.isEmpty() && historyError.isBlank()) item { InfoCard("NO HISTORY YET", "Waiting for snapshots",
+                        "History will appear after the companion has collected session observations.", "") }
+                }
+
                 item {
-                    Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Text("COMPANION CONNECTION", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                            Text(overview.message, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                            Text(if (overview.connected) serverUrl else "Configure your companion URL and API key to load live server data.", color = Muted, fontSize = 13.sp)
-                            if (error.isNotBlank()) Text(error, color = Color(0xFFFF9A8B), fontSize = 12.sp)
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(onClick = { refresh() }, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
-                                    if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Ink)
-                                    else Icon(Icons.Rounded.Refresh, contentDescription = null)
-                                    Spacer(Modifier.width(7.dp))
-                                    Text(if (loading) "Connecting" else "Refresh")
-                                }
-                                OutlinedButton(onClick = { showSettings = true }) { Text("Settings") }
-                            }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(onClick = { refresh() }, enabled = !loading,
+                            colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
+                            if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Ink)
+                            else Icon(Icons.Rounded.Refresh, contentDescription = null)
+                            Spacer(Modifier.width(7.dp))
+                            Text(if (loading) "Refreshing" else "Refresh data")
                         }
+                        OutlinedButton(onClick = { showSettings = true }) { Text("Settings") }
                     }
                 }
-                item {
-                    Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Text("PLAYBACK ANALYTICS", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                            Text("Snapshot collection", color = Color.White, fontWeight = FontWeight.SemiBold)
-                            Text("The companion stores periodic session observations. Exact play counts, completion rates, and watch duration require playback event ingestion and are not inferred from snapshots.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
-                        }
-                    }
-                }
-                item { Text("Allerflux  •  v0.2.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.3.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
             }
         }
         if (showSettings) {
             var urlDraft by remember(showSettings) { mutableStateOf(serverUrl) }
             var keyDraft by remember(showSettings) { mutableStateOf(apiKey) }
-            AlertDialog(
-                onDismissRequest = { showSettings = false },
-                containerColor = Panel,
+            AlertDialog(onDismissRequest = { showSettings = false }, containerColor = Panel,
                 title = { Text("Companion settings", color = Color.White) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") }, placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true)
+                        OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
+                            placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true)
                         OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") }, singleLine = true)
                         Text("Use your server's reachable companion address. For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 12.sp)
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = {
-                        serverUrl = urlDraft.trim().trimEnd('/')
-                        apiKey = keyDraft.trim()
-                        prefs.edit().putString("server_url", serverUrl).putString("api_key", apiKey).apply()
-                        showSettings = false
-                        refresh()
-                    }) { Text("Save & connect", color = Accent) }
-                },
-                dismissButton = { TextButton(onClick = { showSettings = false }) { Text("Cancel", color = Muted) } }
-            )
+                confirmButton = { TextButton(onClick = {
+                    serverUrl = urlDraft.trim().trimEnd('/')
+                    apiKey = keyDraft.trim()
+                    prefs.edit().putString("server_url", serverUrl).putString("api_key", apiKey).apply()
+                    showSettings = false
+                    refresh()
+                }) { Text("Save & connect", color = Accent) } },
+                dismissButton = { TextButton(onClick = { showSettings = false }) { Text("Cancel", color = Muted) } })
         }
     }
 }
 
 @Composable
+private fun InfoCard(title: String, heading: String, detail: String, extra: String) {
+    Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(heading, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            if (detail.isNotBlank()) Text(detail, color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+            if (extra.isNotBlank()) Text(extra, color = Color(0xFFFF9A8B), fontSize = 12.sp)
+        }
+    }
+}
+@Composable
 private fun SectionHeading(value: String) {
     Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
 }
-
 @Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = Panel, shape = RoundedCornerShape(18.dp)) {
