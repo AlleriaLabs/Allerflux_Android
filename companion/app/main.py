@@ -111,6 +111,27 @@ async def current_sessions():
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Jellyfin unavailable: {type(exc).__name__}")
 
+
+@app.get("/api/v1/libraries", dependencies=[Depends(require_api_key)])
+async def libraries():
+    try:
+        folders = await client.get("/Library/VirtualFolders")
+        result = []
+        for folder in folders:
+            item_id = folder.get("ItemId")
+            count = 0
+            if item_id:
+                items = await client.get(f"/Items?ParentId={item_id}&Recursive=true&Limit=0")
+                count = int(items.get("TotalRecordCount") or 0)
+            result.append({
+                "name": folder.get("Name") or "Unnamed library",
+                "collection_type": folder.get("CollectionType") or "mixed",
+                "item_count": count,
+            })
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jellyfin unavailable: {type(exc).__name__}")
+
 @app.get("/api/v1/history", dependencies=[Depends(require_api_key)])
 def history(limit: int = 100, db: Session = Depends(get_db)):
     limit = min(max(limit, 1), 500)
