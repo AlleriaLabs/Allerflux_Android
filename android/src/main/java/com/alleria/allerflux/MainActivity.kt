@@ -150,7 +150,8 @@ fun AllerfluxApp(context: Context) {
                         }
                     }
                 }
-                item { SectionHeading(if (selected == "Overview") "Server overview" else selected) }
+                item { SectionHeading(when (selected) { "Overview" -> "Server overview"; "Activity" -> "Live playback activity"; "Library" -> "Media library"; else -> "Viewing reports" }) }
+                if (selected == "Overview") {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Registered users", overview.users, "Jellyfin accounts", Modifier.weight(1f))
@@ -188,6 +189,15 @@ fun AllerfluxApp(context: Context) {
                             Text("PLAYBACK ANALYTICS", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                             Text("Snapshot collection", color = Color.White, fontWeight = FontWeight.SemiBold)
                             Text("The companion stores periodic session observations. Exact play counts, completion rates, and watch duration require playback event ingestion and are not inferred from snapshots.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                        }
+                    }
+                }
+                } else {
+                    item {
+                        when (selected) {
+                            "Activity" -> ActivityContent(serverUrl, apiKey)
+                            "Library" -> LibraryContent(serverUrl, apiKey)
+                            else -> ReportsContent(serverUrl, apiKey)
                         }
                     }
                 }
@@ -235,6 +245,112 @@ private fun MetricCard(title: String, value: String, detail: String, modifier: M
             Text(title, color = Muted, fontSize = 12.sp)
             Text(value, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
             Text(detail, color = Accent, fontSize = 10.sp)
+        }
+    }
+}
+
+
+private suspend fun fetchArray(baseUrl: String, apiKey: String, path: String): org.json.JSONArray =
+    withContext(Dispatchers.IO) {
+        val connection = (URL(baseUrl.trim().trimEnd('/') + path).openConnection() as HttpURLConnection)
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 8000
+            connection.readTimeout = 12000
+            connection.setRequestProperty("Accept", "application/json")
+            connection.setRequestProperty("X-Allerflux-Key", apiKey)
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val body = stream.bufferedReader().use { it.readText() }
+            if (code !in 200..299) error("HTTP $code: " + runCatching { JSONObject(body).optString("detail") }.getOrDefault(body))
+            org.json.JSONArray(body)
+        } finally { connection.disconnect() }
+    }
+
+@Composable
+private fun ActivityContent(base: String, key: String) {
+    var rows by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var error by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(base, key) {
+        if (base.isBlank() || key.isBlank()) { error = "Configure the companion in Settings."; loading = false }
+        else try { rows = fetchArray(base, key, "/api/v1/sessions") } catch (e: Exception) { error = e.message ?: "Unable to load activity" }
+        loading = false
+    }
+    when {
+        loading -> CircularProgressIndicator(color = Accent)
+        error.isNotBlank() -> Text(error, color = Color(0xFFFF9A8B))
+        rows == null || rows!!.length() == 0 -> InfoPanel("No active playback", "No Jellyfin sessions are currently reporting playback.")
+        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("${rows!!.length()} session(s) returned by Jellyfin", color = Muted, fontSize = 12.sp)
+            for (i in 0 until rows!!.length()) {
+                val row = rows!!.optJSONObject(i) ?: JSONObject()
+                InfoPanel(row.optString("item_name", "Unknown title"), "${row.optString("username", "Unknown user")}  •  ${row.optString("media_type", "Media")}  •  ${row.optString("play_state", "unknown").uppercase()}")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryContent(base: String, key: String) {
+    var rows by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var error by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(base, key) {
+        if (base.isBlank() || key.isBlank()) { error = "Configure the companion in Settings."; loading = false }
+        else try { rows = fetchArray(base, key, "/api/v1/libraries") } catch (e: Exception) { error = e.message ?: "Unable to load libraries" }
+        loading = false
+    }
+    when {
+        loading -> CircularProgressIndicator(color = Accent)
+        error.isNotBlank() -> Text(error, color = Color(0xFFFF9A8B))
+        rows == null || rows!!.length() == 0 -> InfoPanel("No libraries found", "The companion returned no Jellyfin media libraries.")
+        else -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("${rows!!.length()} Jellyfin libraries", color = Muted, fontSize = 12.sp)
+            for (i in 0 until rows!!.length()) {
+                val row = rows!!.optJSONObject(i) ?: JSONObject()
+                InfoPanel(row.optString("name", "Unnamed library"), "${row.optString("collection_type", "Mixed")}  •  ${row.optString("item_count", "—")} items")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReportsContent(base: String, key: String) {
+    var rows by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var error by remember { mutableStateOf("") }
+    var loading by remember { mutableStateOf(true) }
+    LaunchedEffect(base, key) {
+        if (base.isBlank() || key.isBlank()) { error = "Configure the companion in Settings."; loading = false }
+        else try { rows = fetchArray(base, key, "/api/v1/history?limit=200") } catch (e: Exception) { error = e.message ?: "Unable to load reports" }
+        loading = false
+    }
+    when {
+        loading -> CircularProgressIndicator(color = Accent)
+        error.isNotBlank() -> Text(error, color = Color(0xFFFF9A8B))
+        rows == null || rows!!.length() == 0 -> InfoPanel("Collecting report data", "Reports will appear as the companion records periodic playback snapshots.")
+        else -> {
+            val data = rows!!
+            val titles = (0 until data.length()).mapNotNull { data.optJSONObject(it)?.optString("item_name")?.takeIf(String::isNotBlank) }
+            val users = (0 until data.length()).mapNotNull { data.optJSONObject(it)?.optString("user")?.takeIf(String::isNotBlank) }.distinct()
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard("Snapshots", data.length().toString(), "Recorded observations", Modifier.weight(1f))
+                    MetricCard("Observed users", users.size.toString(), "Distinct usernames", Modifier.weight(1f))
+                }
+                InfoPanel("Most observed titles", titles.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(8).joinToString("\n") { "${it.key}  •  ${it.value} snapshots" }.ifBlank { "No title data yet" })
+                Text("These are periodic snapshots, not exact play counts, completion rates, or watch duration.", color = Muted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoPanel(title: String, detail: String) {
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            Text(detail, color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
         }
     }
 }
