@@ -1,16 +1,23 @@
-# Analytics data quality
+# Analytics data quality and API
 
-The Jellyfin `/Sessions` endpoint describes sessions that exist now. It does not provide a complete playback event history. Allerflux stores periodic snapshots as observational data.
-
-Snapshot records can support:
-- current session status (from the live endpoint);
+## Snapshot data
+Jellyfin's `/Sessions` endpoint describes sessions that exist now. Allerflux records periodic observations. These support:
+- current session status from the live endpoint;
 - approximate observed activity over time;
-- trend visualizations with clear "observed" or "estimated" labels.
+- daily snapshot trends and observed user/title counts.
 
-Snapshot records alone cannot reliably establish:
-- exact play counts or distinct playback starts;
-- exact stop times or total watch duration;
-- whether a user finished an item;
-- unique viewers over an arbitrary period when users are missing or identities change.
+Snapshots do not reliably establish exact playback starts, stop times, watch duration, completion, or unique plays. A single long playback may contribute many snapshots. The app labels these as observations.
 
-For accurate event analytics, implement a supported event ingestion path (for example, Jellyfin webhook notifications or a compatible playback reporting source), persist immutable play-start/progress/stop events, and reconcile event identifiers to avoid duplicates. Completion should be computed only when a trustworthy stop/progress event and media runtime are available. Do not silently convert snapshots into exact playback events.
+## Companion endpoints
+All endpoints except `/health` require the `X-Allerflux-Key` header.
+
+- `GET /health` — service health.
+- `GET /api/v1/overview` — registered users and live session counts.
+- `GET /api/v1/sessions` — current Jellyfin sessions and playback state.
+- `GET /api/v1/library` — Jellyfin movie, series, episode, song, album, artist, and box-set counts.
+- `GET /api/v1/history?limit=200` — recent stored snapshots.
+- `GET /api/v1/reports/summary?days=30` — observed snapshot, user, title, playing, and paused counts by reporting window.
+- `GET /api/v1/items/{item_id}/analytics` — observed snapshots and observed users for an item.
+
+## Future exact playback analytics
+For exact plays and watch time, implement a supported event ingestion path such as Jellyfin webhooks or a compatible playback reporting source. Persist immutable start/progress/stop events, deduplicate by event/session identifiers, and only calculate completion when trustworthy stop/progress data and media runtime are available. Never silently convert snapshots into exact playback events.
