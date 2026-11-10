@@ -130,6 +130,9 @@ def item_analytics(item_id: str, db: Session = Depends(get_db)):
         "item_id": item_id,
         "snapshot_count": len(rows),
         "observed_users": len(viewers),
-        "estimated_watch_minutes": round(sum(max(0, r.position_ticks) for r in rows) / 10_000_000 / max(1, len(rows)), 2),
-        "accuracy_note": "Snapshot-derived estimate only; not exact plays, unique viewers, completion, or watch duration.",
+        "observed_states": {
+            "playing": sum(1 for r in rows if r.play_state == "playing"),
+            "paused": sum(1 for r in rows if r.play_state == "paused"),
+        },
+        "accuracy_note": "These are periodic observations, not exact play counts, unique playback starts, completion, or watch duration. No watch-time total is reported until reliable playback events are collected.",
     }
