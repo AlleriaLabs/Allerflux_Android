@@ -11,7 +11,8 @@ Allerflux uses Architecture A:
 - Server overview, registered users, active sessions, and current playback state.
 - Live Jellyfin library inventory counts for movies, series, episodes, songs, albums, and artists.
 - Activity screen backed by live Jellyfin sessions.
-- 30-day observed activity summary and recent snapshot history.
+- 30-day observed activity summary, daily trend chart, top observed titles and per-user activity rankings.
+- Recent snapshot history and per-item observed analytics.
 - Automatic dashboard refresh every 60 seconds.
 - Companion API health and authenticated endpoints.
 

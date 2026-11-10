@@ -9,6 +9,13 @@ on:
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android-build.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "companion/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/android-build.yml"
   workflow_dispatch:
 
 jobs:
