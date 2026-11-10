@@ -1,8 +1,8 @@
 import asyncio, json
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timezone
-from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select, func
+from datetime import datetime, timedelta, timezone
+from fastapi import Depends, FastAPI, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .config import settings
 from .database import Base, engine, SessionLocal, get_db
@@ -15,7 +15,6 @@ poll_task = None
 
 def item_info(s):
     item = s.get("NowPlayingItem") or {}
-    trans = s.get("TranscodingInfo") or {}
     state = s.get("PlayState") or {}
     if state.get("IsPaused"):
         status = "paused"
@@ -64,7 +63,6 @@ async def poll_loop():
         try:
             await poll_once()
         except Exception:
-            # Keep the service alive; health endpoint remains available.
             pass
         await asyncio.sleep(max(10, settings.poll_interval_seconds))
 
@@ -78,38 +76,51 @@ async def lifespan(app: FastAPI):
     with suppress(asyncio.CancelledError):
         await poll_task
 
-app = FastAPI(title="Allerflux Companion API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Allerflux Companion API", version="0.2.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "allerflux-companion"}
 
 @app.get("/api/v1/overview", dependencies=[Depends(require_api_key)])
-async def overview(db: Session = Depends(get_db)):
+async def overview():
     try:
         users = await client.users()
         sessions = await client.sessions()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Jellyfin unavailable: {type(exc).__name__}")
-    playing = [s for s in sessions if (s.get("NowPlayingItem") and not (s.get("PlayState") or {}).get("IsPaused"))]
+    playing = [s for s in sessions if s.get("NowPlayingItem") and not (s.get("PlayState") or {}).get("IsPaused")]
     paused = [s for s in sessions if s.get("NowPlayingItem") and (s.get("PlayState") or {}).get("IsPaused")]
     return {
-        "server_connected": True,
-        "registered_users": len(users),
-        "active_sessions": len(sessions),
-        "currently_playing": len(playing),
-        "paused": len(paused),
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "server_connected": True, "registered_users": len(users),
+        "active_sessions": len(sessions), "currently_playing": len(playing),
+        "paused": len(paused), "captured_at": datetime.now(timezone.utc).isoformat(),
         "history_mode": "snapshot_estimates",
     }
 
 @app.get("/api/v1/sessions", dependencies=[Depends(require_api_key)])
 async def current_sessions():
     try:
-        sessions = await client.sessions()
-        return [item_info(s) for s in sessions]
+        return [item_info(s) for s in await client.sessions()]
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Jellyfin unavailable: {type(exc).__name__}")
+
+@app.get("/api/v1/library", dependencies=[Depends(require_api_key)])
+async def library():
+    try:
+        counts = await client.item_counts()
+        return {
+            "movie_count": int(counts.get("MovieCount") or 0),
+            "series_count": int(counts.get("SeriesCount") or 0),
+            "episode_count": int(counts.get("EpisodeCount") or 0),
+            "song_count": int(counts.get("SongCount") or 0),
+            "album_count": int(counts.get("AlbumCount") or 0),
+            "artist_count": int(counts.get("ArtistCount") or 0),
+            "boxset_count": int(counts.get("BoxSetCount") or 0),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jellyfin library unavailable: {type(exc).__name__}")
 
 @app.get("/api/v1/history", dependencies=[Depends(require_api_key)])
 def history(limit: int = 100, db: Session = Depends(get_db)):
@@ -122,17 +133,39 @@ def history(limit: int = 100, db: Session = Depends(get_db)):
         "record_type": "periodic_snapshot_not_play_event",
     } for r in rows]
 
+@app.get("/api/v1/reports/summary", dependencies=[Depends(require_api_key)])
+def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = Depends(get_db)):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
+    by_day = {}
+    users = set()
+    titles = set()
+    for row in rows:
+        day = row.captured_at.date().isoformat()
+        bucket = by_day.setdefault(day, {"date": day, "snapshots": 0, "playing": 0, "paused": 0})
+        bucket["snapshots"] += 1
+        if row.play_state == "playing": bucket["playing"] += 1
+        if row.play_state == "paused": bucket["paused"] += 1
+        if row.user_id: users.add(row.user_id)
+        if row.item_id: titles.add(row.item_id)
+    return {
+        "days": days, "snapshot_count": len(rows), "observed_users": len(users),
+        "observed_titles": len(titles),
+        "playing_samples": sum(1 for row in rows if row.play_state == "playing"),
+        "paused_samples": sum(1 for row in rows if row.play_state == "paused"),
+        "daily": sorted(by_day.values(), key=lambda x: x["date"]),
+        "accuracy_note": "Periodic session observations only; not exact plays, completion, or watch duration.",
+    }
+
 @app.get("/api/v1/items/{item_id}/analytics", dependencies=[Depends(require_api_key)])
 def item_analytics(item_id: str, db: Session = Depends(get_db)):
     rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.item_id == item_id)).all()
     viewers = {r.user_id for r in rows if r.user_id}
     return {
-        "item_id": item_id,
-        "snapshot_count": len(rows),
-        "observed_users": len(viewers),
+        "item_id": item_id, "snapshot_count": len(rows), "observed_users": len(viewers),
         "observed_states": {
             "playing": sum(1 for r in rows if r.play_state == "playing"),
             "paused": sum(1 for r in rows if r.play_state == "paused"),
         },
-        "accuracy_note": "These are periodic observations, not exact play counts, unique playback starts, completion, or watch duration. No watch-time total is reported until reliable playback events are collected.",
+        "accuracy_note": "Periodic observations, not exact play counts, unique playback starts, completion, or watch duration.",
     }
