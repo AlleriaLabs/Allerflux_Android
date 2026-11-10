@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +17,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +55,14 @@ private data class SessionRow(val user: String, val title: String, val type: Str
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
+private data class DailyStat(val date: String, val snapshots: Int)
+private data class TopTitle(val name: String, val type: String, val samples: Int, val users: Int)
+private data class TopUser(val name: String, val samples: Int, val titles: Int)
+private data class ReportDetails(
+    val daily: List<DailyStat> = emptyList(),
+    val topTitles: List<TopTitle> = emptyList(),
+    val topUsers: List<TopUser> = emptyList()
+)
 
 private suspend fun apiGet(base: String, key: String, path: String): String = withContext(Dispatchers.IO) {
     val c = URL(base.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
@@ -95,6 +106,29 @@ private suspend fun loadReportStats(base: String, key: String): ReportStats {
         j.optInt("playing_samples"), j.optInt("paused_samples"))
 }
 
+private suspend fun loadReportDetails(base: String, key: String): ReportDetails {
+    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=30"))
+    val dailyJson = summary.optJSONArray("daily") ?: JSONArray()
+    val daily = (0 until dailyJson.length()).map {
+        val row = dailyJson.getJSONObject(it)
+        DailyStat(row.optString("date"), row.optInt("snapshots"))
+    }
+    val titlesJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-titles?days=30&limit=8"))
+        .optJSONArray("items") ?: JSONArray()
+    val titles = (0 until titlesJson.length()).map {
+        val row = titlesJson.getJSONObject(it)
+        TopTitle(row.optString("item_name", "Unknown title"), row.optString("media_type", "Media"),
+            row.optInt("snapshot_count"), row.optInt("observed_users"))
+    }
+    val usersJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-users?days=30&limit=8"))
+        .optJSONArray("users") ?: JSONArray()
+    val users = (0 until usersJson.length()).map {
+        val row = usersJson.getJSONObject(it)
+        TopUser(row.optString("username", "Unknown user"), row.optInt("snapshot_count"), row.optInt("observed_titles"))
+    }
+    return ReportDetails(daily, titles, users)
+}
+
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
     val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=200"))
     return (0 until a.length()).map {
@@ -115,6 +149,7 @@ fun AllerfluxApp(context: Context) {
     var library by remember { mutableStateOf(LibraryStats()) }
     var libraryError by remember { mutableStateOf("") }
     var reportStats by remember { mutableStateOf(ReportStats()) }
+    var reportDetails by remember { mutableStateOf(ReportDetails()) }
     var reportError by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -141,7 +176,7 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
             try { library = loadLibrary(serverUrl, apiKey); libraryError = "" }
             catch (e: Exception) { libraryError = e.message ?: "Unable to load library inventory" }
-            try { reportStats = loadReportStats(serverUrl, apiKey); reportError = "" }
+            try { reportStats = loadReportStats(serverUrl, apiKey); reportDetails = loadReportDetails(serverUrl, apiKey); reportError = "" }
             catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
             loading = false
         }
@@ -252,6 +287,42 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Playing samples", reportStats.playing.toString(), "Snapshot count", Modifier.weight(1f))
                     } }
                     item { MetricCard("Paused samples", reportStats.paused.toString(), "Snapshot count", Modifier.fillMaxWidth()) }
+                    item { SectionHeading("Daily observed activity") }
+                    item {
+                        Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Playback samples · last 30 days", color = Muted, fontSize = 12.sp)
+                                if (reportDetails.daily.isEmpty()) {
+                                    Text("No observations recorded in this period.", color = Muted, fontSize = 13.sp)
+                                } else {
+                                    Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+                                        val maxValue = (reportDetails.daily.maxOfOrNull { it.snapshots } ?: 0).coerceAtLeast(1)
+                                        val slot = size.width / reportDetails.daily.size
+                                        val barWidth = (slot * 0.62f).coerceAtLeast(2f)
+                                        reportDetails.daily.forEachIndexed { index, day ->
+                                            val barHeight = size.height * day.snapshots.toFloat() / maxValue
+                                            drawRect(Accent, Offset(index * slot + (slot - barWidth) / 2f, size.height - barHeight),
+                                                Size(barWidth, barHeight))
+                                        }
+                                    }
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(reportDetails.daily.first().date, color = Muted, fontSize = 10.sp)
+                                        Text(reportDetails.daily.last().date, color = Muted, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item { SectionHeading("Most observed titles") }
+                    if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO TITLE DATA", "No ranked titles yet", "Playback observations will populate this list.", "") }
+                    items(reportDetails.topTitles) { title ->
+                        InfoCard(title.type, title.name, "${title.samples} observed samples", "${title.users} observed users")
+                    }
+                    item { SectionHeading("User activity") }
+                    if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO USER DATA", "No ranked users yet", "Playback observations will populate this list.", "") }
+                    items(reportDetails.topUsers) { user ->
+                        InfoCard("JELLYFIN USER", user.name, "${user.samples} observed samples", "${user.titles} observed titles")
+                    }
                     item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
                         "These are 30-day snapshot estimates, not unique plays, completed titles, or total watch time. One long playback can contribute many observations.", "") }
                     item { SectionHeading("Recent observations") }
