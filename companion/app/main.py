@@ -189,9 +189,13 @@ def reports_top_titles(
         if row.user_id:
             item["users"].add(row.user_id)
     ranked = sorted(grouped.values(), key=lambda item: item["snapshot_count"], reverse=True)[:limit]
+    items = []
+    for item in ranked:
+        observed_users = len(item.pop("users"))
+        items.append({**item, "observed_users": observed_users})
     return {
         "days": days,
-        "items": [{**item, "observed_users": len(item.pop("users"))} for item in ranked],
+        "items": items,
         "ranking_basis": "snapshot_count",
         "accuracy_note": "Ranked by periodic observations, not exact plays, completion, or watch duration.",
     }
@@ -222,9 +226,13 @@ def reports_top_users(
         if row.item_id:
             user["titles"].add(row.item_id)
     ranked = sorted(grouped.values(), key=lambda user: user["snapshot_count"], reverse=True)[:limit]
+    users = []
+    for user in ranked:
+        observed_titles = len(user.pop("titles"))
+        users.append({**user, "observed_titles": observed_titles})
     return {
         "days": days,
-        "users": [{**user, "observed_titles": len(user.pop("titles"))} for user in ranked],
+        "users": users,
         "ranking_basis": "snapshot_count",
         "accuracy_note": "Ranked by periodic observations, not exact plays or total watch time.",
     }
