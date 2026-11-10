@@ -7,14 +7,16 @@ Allerflux uses Architecture A:
 - **Persistence:** SQLite initially, with a repository layer that can move to PostgreSQL later.
 - **Access:** local LAN and remote HTTPS/VPN. Never expose the companion directly to the public internet without TLS and authentication.
 
-## Product scope
+## Current capabilities
 - Server overview, registered users, active sessions, and current playback state.
-- Playback history and per-item analytics.
-- Daily, weekly, and monthly reports.
-- Per-item plays, unique viewers, active/paused sessions, completion estimates, and watch time.
+- Live Jellyfin library inventory counts for movies, series, episodes, songs, albums, and artists.
+- Activity screen backed by live Jellyfin sessions.
+- 30-day observed activity summary and recent snapshot history.
+- Automatic dashboard refresh every 60 seconds.
+- Companion API health and authenticated endpoints.
 
-## Accuracy note
-Jellyfin's live Sessions endpoint is a snapshot, not a complete historical event log. The companion records periodic snapshots and session transitions, but exact start/stop/completion history requires a reliable event source such as Jellyfin webhooks or a supported playback-reporting integration. Allerflux must label inferred metrics as estimates and must not present snapshot-derived data as exact history.
+## Analytics accuracy
+The companion stores periodic session snapshots. These support observed activity trends but are not a complete playback event log. Snapshot records cannot establish exact play counts, playback starts, stop times, completion, or total watch duration. Those metrics require reliable Jellyfin webhook/playback event ingestion and reconciliation. Allerflux labels snapshot-derived values as observations and does not report them as exact watch analytics.
 
 ## Repository layout
 - `android/` — native Android application.
@@ -22,25 +24,15 @@ Jellyfin's live Sessions endpoint is a snapshot, not a complete historical event
 - `deploy/` — Docker Compose and deployment examples.
 - `docs/` — setup, API, and analytics notes.
 
-## Status
-Project foundation. Implementation is being built in stages; do not treat the initial scaffold as a production release.
-
 ## Security
-Keep Jellyfin credentials and the Allerflux API secret in server-side environment variables. Do not commit secrets. Use a strong unique companion secret and expose the API only through a trusted LAN, VPN, or HTTPS reverse proxy.
+Keep Jellyfin credentials and the Allerflux API secret in server-side environment variables. Do not commit secrets. Use a strong unique companion secret and expose the API only through a trusted LAN, VPN, or HTTPS reverse proxy. The Android client currently permits cleartext HTTP for trusted home-LAN connections; do not forward port 8787 directly to the public internet.
 
 ## Companion deployment (CasaOS / Docker)
-
-1. Confirm the Jellyfin URL from the Docker host or companion container. The previously used server address was `http://192.168.68.107:8097`; verify it is still correct.
-2. Create a Jellyfin API key in the Jellyfin dashboard (Dashboard → API Keys).
-3. On the server, clone this repository and enter `deploy/`.
-4. Copy `.env.example` to `.env`, then set `JELLYFIN_URL`, `JELLYFIN_API_KEY`, and a long random `ALLERFLUX_API_KEY`.
-5. Start the service with `docker compose up -d --build`.
-6. Check `http://SERVER-LAN-IP:8787/health`. Configure the Android app with `http://SERVER-LAN-IP:8787` and the same Allerflux API key.
-
-The companion's container port is 8787. The sample Compose file uses Docker's default bridge network and reaches Jellyfin through the configured server URL; it does not assume a Jellyfin-specific Docker network name.
-
-**Network safety:** the Android client currently permits cleartext HTTP so it can connect to a trusted home-LAN companion. Keep this port LAN/VPN-only. For access over the public internet, put it behind HTTPS or use a VPN; do not forward port 8787 directly to the internet.
+1. Confirm the Jellyfin URL reachable from the companion container.
+2. Create a Jellyfin API key in Jellyfin Dashboard → API Keys.
+3. Copy `deploy/.env.example` to `deploy/.env` and set `JELLYFIN_URL`, `JELLYFIN_API_KEY`, and a strong `ALLERFLUX_API_KEY`.
+4. Deploy with Docker Compose and confirm `http://SERVER-LAN-IP:8787/health` returns HTTP 200.
+5. Configure the Android app with the companion URL and the same Allerflux API key.
 
 ## Android build
-
-The GitHub Actions workflow builds a debug APK on pushes that touch Android/build files and on manual dispatch. Download the `allerflux-debug-apk` artifact from the successful workflow run. This is a debug build, not a Play Store release.
+GitHub Actions builds a debug APK when Android or companion source changes are pushed to `main`, or on manual dispatch. Download the `allerflux-debug-apk` artifact from a successful workflow run. Debug APKs are for direct testing, not Play Store release.
