@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "android/**"
+      - "companion/**"
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android-build.yml"
