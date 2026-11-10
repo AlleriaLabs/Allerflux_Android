@@ -49,6 +49,7 @@ private data class Overview(
 )
 private data class SessionRow(val user: String, val title: String, val type: String, val state: String, val position: Long)
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
+private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 
 private suspend fun apiGet(base: String, key: String, path: String): String = withContext(Dispatchers.IO) {
     val c = URL(base.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
@@ -79,6 +80,13 @@ private suspend fun loadSessions(base: String, key: String): List<SessionRow> {
             j.optString("media_type", "Media"), j.optString("play_state", "idle"), j.optLong("position_ticks"))
     }
 }
+
+private suspend fun loadLibrary(base: String, key: String): LibraryStats {
+    val j = JSONObject(apiGet(base, key, "/api/v1/library"))
+    return LibraryStats(j.optInt("movie_count"), j.optInt("series_count"), j.optInt("episode_count"),
+        j.optInt("song_count"), j.optInt("album_count"), j.optInt("artist_count"))
+}
+
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
     val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=200"))
     return (0 until a.length()).map {
@@ -96,6 +104,8 @@ fun AllerfluxApp(context: Context) {
     var overview by remember { mutableStateOf(Overview()) }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
+    var library by remember { mutableStateOf(LibraryStats()) }
+    var libraryError by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
@@ -119,6 +129,8 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
             try { history = loadHistory(serverUrl, apiKey); historyError = "" }
             catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
+            try { library = loadLibrary(serverUrl, apiKey); libraryError = "" }
+            catch (e: Exception) { libraryError = e.message ?: "Unable to load library inventory" }
             loading = false
         }
     }
@@ -190,11 +202,21 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Library") {
-                    item { MetricCard("Registered users", overview.users, "Jellyfin accounts") }
-                    item { InfoCard("LIBRARY INVENTORY", "Library endpoint not yet available",
-                        "This tab is now separate from Overview. The current companion API exposes live sessions and snapshot history, but not library names, movie or episode totals, genres, or storage usage. Those require a companion API extension.", "") }
-                    item { InfoCard("PLANNED INVENTORY", "Movies  •  Shows  •  Episodes  •  Music",
-                        "The library screen is ready for the next backend integration. Existing companion connection settings are unchanged.", "") }
+                    if (libraryError.isNotBlank()) item { InfoCard("LIBRARY UNAVAILABLE", "Could not load Jellyfin inventory", libraryError, "") }
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Movies", library.movies.toString(), "Movie library", Modifier.weight(1f))
+                        MetricCard("TV series", library.series.toString(), "Series library", Modifier.weight(1f))
+                    } }
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Episodes", library.episodes.toString(), "TV episodes", Modifier.weight(1f))
+                        MetricCard("Songs", library.songs.toString(), "Music tracks", Modifier.weight(1f))
+                    } }
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Albums", library.albums.toString(), "Music albums", Modifier.weight(1f))
+                        MetricCard("Artists", library.artists.toString(), "Music artists", Modifier.weight(1f))
+                    } }
+                    item { InfoCard("JELLYFIN LIBRARY", "Live inventory counts",
+                        "Counts are fetched directly from Jellyfin. Refresh data to update the inventory.", "") }
                 }
 
                 if (selected == "Reports") {
@@ -230,7 +252,7 @@ fun AllerfluxApp(context: Context) {
                         OutlinedButton(onClick = { showSettings = true }) { Text("Settings") }
                     }
                 }
-                item { Text("Allerflux  •  v0.3.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.4.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
             }
         }
         if (showSettings) {
