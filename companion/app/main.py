@@ -165,17 +165,29 @@ def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = D
     titles = set()
     for row in rows:
         day = row.captured_at.date().isoformat()
-        bucket = by_day.setdefault(day, {"date": day, "snapshots": 0, "playing": 0, "paused": 0})
+        bucket = by_day.setdefault(day, {
+            "date": day, "snapshots": 0, "playing": 0, "paused": 0,
+            "users": set(), "titles": set()
+        })
         bucket["snapshots"] += 1
         if row.play_state == "playing": bucket["playing"] += 1
         if row.play_state == "paused": bucket["paused"] += 1
-        if row.user_id: users.add(row.user_id)
-        if row.item_id: titles.add(row.item_id)
-    # Fill missing dates with zeroes so chart clients can render a continuous timeline.
+        if row.user_id:
+            users.add(row.user_id)
+            bucket["users"].add(row.user_id)
+        if row.item_id:
+            titles.add(row.item_id)
+            bucket["titles"].add(row.item_id)
+    # Fill missing dates and expose distinct viewers and titles per day.
     daily = []
     for offset in range(days):
         day = (first_day + timedelta(days=offset)).isoformat()
-        daily.append(by_day.get(day, {"date": day, "snapshots": 0, "playing": 0, "paused": 0}))
+        bucket = by_day.get(day, {"date": day, "snapshots": 0, "playing": 0, "paused": 0, "users": set(), "titles": set()})
+        daily.append({
+            "date": day, "snapshots": bucket["snapshots"], "playing": bucket["playing"],
+            "paused": bucket["paused"], "unique_users": len(bucket["users"]),
+            "unique_titles": len(bucket["titles"])
+        })
     return {
         "days": days, "snapshot_count": len(rows), "observed_users": len(users),
         "observed_titles": len(titles),
