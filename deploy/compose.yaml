@@ -10,13 +10,6 @@ services:
       - "8787:8787"
     volumes:
       - allerflux-data:/data
-    networks:
-      - media
 
 volumes:
   allerflux-data:
-
-networks:
-  media:
-    external: true
-    name: jellyfin_default
