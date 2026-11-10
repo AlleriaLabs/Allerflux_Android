@@ -346,7 +346,7 @@ fun AllerfluxApp(context: Context) {
                         OutlinedButton(onClick = { showSettings = true }) { Text("Settings") }
                     }
                 }
-                item { Text("Allerflux  •  v0.3.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.4.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
             }
         }
         if (showSettings) {
