@@ -1,0 +1,22 @@
+services:
+  allerflux-companion:
+    build:
+      context: ../companion
+    container_name: allerflux-companion
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8787:8787"
+    volumes:
+      - allerflux-data:/data
+    networks:
+      - media
+
+volumes:
+  allerflux-data:
+
+networks:
+  media:
+    external: true
+    name: jellyfin_default
