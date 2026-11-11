@@ -48,6 +48,30 @@ class WebhookApiContractTests(unittest.TestCase):
             response = client.post("/api/v1/webhooks/jellyfin", json={})
             self.assertEqual(response.status_code, 401)
 
+    def test_health_endpoint_is_public_and_reports_are_authenticated(self):
+        with TestClient(main.app) as client:
+            health = client.get("/health")
+            denied = client.get("/api/v1/reports/summary")
+            allowed = client.get(
+                "/api/v1/reports/summary",
+                headers={"X-Allerflux-Key": "test-api-secret"},
+            )
+        self.assertEqual(health.status_code, 200)
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.json()["snapshot_count"], 0)
+
+    def test_diagnostics_requires_api_key_and_reports_database_state(self):
+        with TestClient(main.app) as client:
+            denied = client.get("/api/v1/diagnostics")
+            allowed = client.get(
+                "/api/v1/diagnostics",
+                headers={"X-Allerflux-Key": "test-api-secret"},
+            )
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(allowed.status_code, 200)
+        self.assertTrue(allowed.json()["database_connected"])
+
     def test_webhook_is_idempotent_and_summary_is_event_based(self):
         payload = {
             "NotificationType": "PlaybackStart",
