@@ -70,6 +70,7 @@ private fun formatDuration(seconds: Long): String {
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
+private data class EventSummary(val starts: Int = 0, val stops: Int = 0, val completed: Int = 0, val users: Int = 0, val titles: Int = 0)
 private data class DailyStat(val date: String, val snapshots: Int, val users: Int, val titles: Int)
 private data class TopTitle(val name: String, val type: String, val samples: Int, val users: Int)
 private data class TopUser(val name: String, val samples: Int, val titles: Int)
@@ -125,33 +126,40 @@ private suspend fun loadLibrary(base: String, key: String): LibraryStats {
         j.optInt("song_count"), j.optInt("album_count"), j.optInt("artist_count"))
 }
 
-private suspend fun loadReportStats(base: String, key: String): ReportStats {
-    val j = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=30"))
+private suspend fun loadReportStats(base: String, key: String, days: Int): ReportStats {
+    val j = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=$days"))
     return ReportStats(j.optInt("snapshot_count"), j.optInt("observed_users"), j.optInt("observed_titles"),
         j.optInt("playing_samples"), j.optInt("paused_samples"))
 }
 
-private suspend fun loadReportDetails(base: String, key: String): ReportDetails {
-    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=30"))
+private suspend fun loadReportDetails(base: String, key: String, days: Int): ReportDetails {
+    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=$days"))
     val dailyJson = summary.optJSONArray("daily") ?: JSONArray()
     val daily = (0 until dailyJson.length()).map {
         val row = dailyJson.getJSONObject(it)
         DailyStat(row.optString("date"), row.optInt("snapshots"), row.optInt("unique_users"), row.optInt("unique_titles"))
     }
-    val titlesJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-titles?days=30&limit=8"))
+    val titlesJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-titles?days=$days&limit=8"))
         .optJSONArray("items") ?: JSONArray()
     val titles = (0 until titlesJson.length()).map {
         val row = titlesJson.getJSONObject(it)
         TopTitle(row.optString("item_name", "Unknown title"), row.optString("media_type", "Media"),
             row.optInt("snapshot_count"), row.optInt("observed_users"))
     }
-    val usersJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-users?days=30&limit=8"))
+    val usersJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-users?days=$days&limit=8"))
         .optJSONArray("users") ?: JSONArray()
     val users = (0 until usersJson.length()).map {
         val row = usersJson.getJSONObject(it)
         TopUser(row.optString("username", "Unknown user"), row.optInt("snapshot_count"), row.optInt("observed_titles"))
     }
     return ReportDetails(daily, titles, users)
+}
+
+
+private suspend fun loadEventSummary(base: String, key: String, days: Int): EventSummary {
+    val j = JSONObject(apiGet(base, key, "/api/v1/events/summary?days=$days"))
+    return EventSummary(j.optInt("playback_starts"), j.optInt("playback_stops"),
+        j.optInt("completed_stops"), j.optInt("distinct_users"), j.optInt("distinct_titles"))
 }
 
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
@@ -175,6 +183,9 @@ fun AllerfluxApp(context: Context) {
     var libraryError by remember { mutableStateOf("") }
     var reportStats by remember { mutableStateOf(ReportStats()) }
     var reportDetails by remember { mutableStateOf(ReportDetails()) }
+    var eventSummary by remember { mutableStateOf(EventSummary()) }
+    var eventError by remember { mutableStateOf("") }
+    var reportDays by remember { mutableIntStateOf(30) }
     var reportError by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -202,13 +213,15 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
             try { library = loadLibrary(serverUrl, apiKey); libraryError = "" }
             catch (e: Exception) { libraryError = e.message ?: "Unable to load library inventory" }
-            try { reportStats = loadReportStats(serverUrl, apiKey); reportDetails = loadReportDetails(serverUrl, apiKey); reportError = "" }
+            try { reportStats = loadReportStats(serverUrl, apiKey, reportDays); reportDetails = loadReportDetails(serverUrl, apiKey, reportDays); reportError = "" }
             catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
+            try { eventSummary = loadEventSummary(serverUrl, apiKey, reportDays); eventError = "" }
+            catch (e: Exception) { eventError = e.message ?: "Playback events are unavailable" }
             loading = false
         }
     }
 
-    LaunchedEffect(serverUrl, apiKey) {
+    LaunchedEffect(serverUrl, apiKey, reportDays) {
         if (serverUrl.isNotBlank() && apiKey.isNotBlank()) {
             refresh()
             while (true) {
@@ -371,9 +384,21 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Reports") {
-                    if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load 30-day summary", reportError, "") }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Text("REPORTING PERIOD", color = Muted, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                listOf(7, 30, 90, 365).forEach { days ->
+                                    FilterChip(selected = reportDays == days, onClick = { reportDays = days },
+                                        label = { Text(when (days) { 7 -> "7D"; 30 -> "30D"; 90 -> "90D"; else -> "1Y" }) })
+                                }
+                            }
+                        }
+                    }
+                    if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load $reportDays-day summary", reportError, "") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricCard("Snapshots", reportStats.snapshots.toString(), "Last 30 days", Modifier.weight(1f))
+                        MetricCard("Snapshots", reportStats.snapshots.toString(), "Last $reportDays days", Modifier.weight(1f))
                         MetricCard("Observed users", reportStats.users.toString(), "Distinct account IDs", Modifier.weight(1f))
                     } }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -381,11 +406,27 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Playing samples", reportStats.playing.toString(), "Snapshot count", Modifier.weight(1f))
                     } }
                     item { MetricCard("Paused samples", reportStats.paused.toString(), "Snapshot count", Modifier.fillMaxWidth()) }
+                    item { SectionHeading("Playback events") }
+                    if (eventError.isNotBlank()) {
+                        item { InfoCard("EVENT INGESTION UNAVAILABLE", "Playback event data not connected",
+                            "Configure the Jellyfin Webhook plugin and the separate webhook secret on the companion.", eventError) }
+                    } else {
+                        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricCard("Playback starts", eventSummary.starts.toString(), "Received webhook events", Modifier.weight(1f))
+                            MetricCard("Playback stops", eventSummary.stops.toString(), "Received webhook events", Modifier.weight(1f))
+                        } }
+                        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricCard("Completed", eventSummary.completed.toString(), "Explicit completion flags", Modifier.weight(1f))
+                            MetricCard("Event viewers", eventSummary.users.toString(), "Distinct user IDs", Modifier.weight(1f))
+                        } }
+                        item { Text("Event-based counts are separate from periodic snapshot estimates. A stop is not automatically a completion, and watch duration is not inferred.",
+                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                    }
                     item { SectionHeading("Daily observed activity") }
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Daily viewers and distinct videos · last 30 days", color = Muted, fontSize = 12.sp)
+                                Text("Daily viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text("● Viewers", color = Accent, fontSize = 11.sp)
                                     Text("● Videos", color = Color(0xFFFFB86B), fontSize = 11.sp)
@@ -446,7 +487,7 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Top Viewers") {
-                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback activity over the last 30 days.", "") }
+                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback activity over the last $reportDays days.", "") }
                     if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO DATA", "No ranked users yet", "User activity will appear as snapshots are collected.", "") }
                     items(reportDetails.topUsers) { user ->
                         InfoCard("RANK " + (reportDetails.topUsers.indexOf(user) + 1), user.name,
