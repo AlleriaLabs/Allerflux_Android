@@ -580,11 +580,10 @@ fun AllerfluxApp(context: Context) {
                 )
             }
         }, bottomBar = {
-            Surface(color = Panel, shadowElevation = 18.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Border),
-                modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().background(Ink)) {
+                Divider(color = Border.copy(alpha = 0.85f), thickness = 1.dp)
                 Row(Modifier.fillMaxWidth().navigationBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 7.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically) {
                     listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
@@ -597,20 +596,17 @@ fun AllerfluxApp(context: Context) {
                             else -> Icons.Rounded.MoreHoriz
                         }
                         Column(Modifier.weight(1f).clickable { selected = tab }
-                            .padding(vertical = 2.dp),
+                            .padding(vertical = 1.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Surface(color = if (active) Color(0xFF243344) else Color.Transparent,
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.size(width = 48.dp, height = 28.dp)) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(tabIcon, contentDescription = tab,
-                                        tint = if (active) Accent else Muted,
-                                        modifier = Modifier.size(18.dp))
-                                }
+                            verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Box(Modifier.width(56.dp).height(32.dp)
+                                .background(if (active) Color(0xFF203B42) else Color.Transparent,
+                                    RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center) {
+                                Icon(tabIcon, contentDescription = tab,
+                                    tint = if (active) Accent else Muted,
+                                    modifier = Modifier.size(20.dp))
                             }
-                            Box(Modifier.width(if (active) 18.dp else 6.dp).height(2.dp)
-                                .background(if (active) AccentPurple else Color.Transparent, RoundedCornerShape(2.dp)))
                             Text(tab, color = if (active) Color.White else Muted,
                                 fontSize = 10.sp,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
@@ -623,47 +619,43 @@ fun AllerfluxApp(context: Context) {
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Surface(color = PanelElevated, shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
-                        modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.size(42.dp)) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    if (logoBitmap != null) {
-                                        Image(bitmap = logoBitmap,
-                                            contentDescription = "Allerflux orbital logo",
-                                            modifier = Modifier.fillMaxSize().padding(3.dp))
-                                    } else {
-                                        Icon(Icons.Rounded.QueryStats,
-                                            contentDescription = "Allerflux",
-                                            tint = Accent,
-                                            modifier = Modifier.size(30.dp))
-                                    }
-                                }
-                            }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("ALLERIA LABS", color = Accent, fontSize = 8.sp,
-                                    fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
-                                Text("Allerflux", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                                Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp, letterSpacing = 0.8.sp)
-                            }
-                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Surface(color = if (overview.connected) Color(0xFF173B36) else Color(0xFF3B2B2B),
-                                    shape = RoundedCornerShape(30.dp)) {
-                                    Text(if (overview.connected) "ONLINE" else "SETUP",
-                                        color = if (overview.connected) Accent else Color(0xFFFFB5A8),
-                                        fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
-                                }
-                                IconButton(onClick = { selected = "Settings" }) {
-                                    Icon(Icons.Rounded.Settings, "Settings", tint = Color.White)
-                                }
-                            }
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (logoBitmap != null) {
+                            Image(bitmap = logoBitmap, contentDescription = "Allerflux orbital logo",
+                                modifier = Modifier.size(34.dp))
+                        } else {
+                            Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux",
+                                tint = Accent, modifier = Modifier.size(30.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text("Allerflux", color = Color.White, fontSize = 18.sp,
+                                fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp)
+                            Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp,
+                                letterSpacing = 0.85.sp)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Box(Modifier.size(7.dp).background(
+                                if (overview.connected) Accent else Color(0xFFFFB86B), CircleShape))
+                            Text(if (overview.connected) "ONLINE" else "SETUP",
+                                color = if (overview.connected) Accent else Color(0xFFFFB86B),
+                                fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.width(9.dp))
+                        IconButton(onClick = { refresh() }, modifier = Modifier.size(38.dp)) {
+                            Icon(Icons.Rounded.Refresh, "Refresh", tint = Muted,
+                                modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { selected = "Settings" }, modifier = Modifier.size(38.dp)) {
+                            Icon(Icons.Rounded.Settings, "Settings", tint = Muted,
+                                modifier = Modifier.size(20.dp))
                         }
                     }
+                    Divider(color = Border.copy(alpha = 0.75f), thickness = 1.dp)
                 }
                 if (selected == "Overview") {
                     item {
