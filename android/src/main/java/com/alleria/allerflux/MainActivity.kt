@@ -178,6 +178,8 @@ fun AllerfluxApp(context: Context) {
     var activityError by remember { mutableStateOf("") }
     var historyError by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf("Overview") }
+    var urlDraft by remember { mutableStateOf(serverUrl) }
+    var keyDraft by remember { mutableStateOf(apiKey) }
     val scope = rememberCoroutineScope()
 
     fun refresh() {
@@ -407,8 +409,6 @@ fun AllerfluxApp(context: Context) {
                     item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
                 }
                 if (selected == "Settings") {
-                    var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
-                    var keyDraft by remember(apiKey) { mutableStateOf(apiKey) }
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
                     item {
