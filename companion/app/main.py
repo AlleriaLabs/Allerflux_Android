@@ -1,10 +1,16 @@
 import asyncio, json
 import httpx
+import os
+import sqlite3
+import tempfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select
+from sqlalchemy import select, delete, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from .config import settings
 from .database import Base, engine, SessionLocal, get_db
@@ -15,6 +21,8 @@ from .jellyfin import JellyfinClient
 
 client = JellyfinClient()
 poll_task = None
+last_cleanup_at = None
+poll_status = {"last_attempt_at": None, "last_success_at": None, "last_error_type": None}
 
 def item_info(s):
     item = s.get("NowPlayingItem") or {}
@@ -115,8 +123,11 @@ async def notify_alert(event: dict | None):
 
 
 async def poll_once():
+    global last_cleanup_at
     if not settings.jellyfin_api_key:
+        poll_status["last_error_type"] = "JellyfinApiKeyNotConfigured"
         return
+    poll_status["last_attempt_at"] = datetime.now(timezone.utc).isoformat()
     sessions = await client.sessions()
     await notify_alert(change_alert_state("server:unreachable", "server_unreachable",
         "Jellyfin connection restored", "The companion can reach the Jellyfin server again.", False))
@@ -144,6 +155,15 @@ async def poll_once():
                 play_state=data["play_state"], position_ticks=data["position_ticks"],
                 captured_at=now, raw_json=data["raw_json"]))
         db.commit()
+        if last_cleanup_at is None or now - last_cleanup_at >= timedelta(hours=24):
+            snapshot_cutoff = now - timedelta(days=max(30, settings.snapshot_retention_days))
+            event_cutoff = now - timedelta(days=max(30, settings.event_retention_days))
+            db.execute(delete(SessionSnapshot).where(SessionSnapshot.captured_at < snapshot_cutoff))
+            db.execute(delete(PlaybackEvent).where(PlaybackEvent.occurred_at < event_cutoff))
+            db.commit()
+            last_cleanup_at = now
+        poll_status["last_success_at"] = now.isoformat()
+        poll_status["last_error_type"] = None
     except Exception:
         db.rollback()
         raise
@@ -167,6 +187,7 @@ async def poll_loop():
         try:
             await poll_once()
         except Exception as exc:
+            poll_status["last_error_type"] = type(exc).__name__
             event = change_alert_state("server:unreachable", "server_unreachable",
                 "Jellyfin server unavailable",
                 f"The companion could not poll Jellyfin ({type(exc).__name__}).", True)
@@ -288,6 +309,57 @@ def recent_playback_events(
         "client_name": row.client_name,
         "source": "jellyfin_webhook_event",
     } for row in rows]
+
+
+@app.get("/api/v1/diagnostics", dependencies=[Depends(require_api_key)])
+def companion_diagnostics(db: Session = Depends(get_db)):
+    database_connected = False
+    try:
+        db.execute(text("SELECT 1"))
+        database_connected = True
+    except Exception:
+        database_connected = False
+    return {
+        "database_connected": database_connected,
+        "jellyfin_polling_enabled": bool(settings.jellyfin_api_key),
+        "poll_interval_seconds": max(10, settings.poll_interval_seconds),
+        "last_poll_attempt_at": poll_status["last_attempt_at"],
+        "last_poll_success_at": poll_status["last_success_at"],
+        "last_poll_error_type": poll_status["last_error_type"],
+        "snapshot_retention_days": max(30, settings.snapshot_retention_days),
+        "event_retention_days": max(30, settings.event_retention_days),
+    }
+
+
+@app.get("/api/v1/admin/backup", dependencies=[Depends(require_api_key)])
+def download_database_backup():
+    database_url = make_url(settings.database_url)
+    if database_url.get_backend_name() != "sqlite":
+        raise HTTPException(status_code=501, detail="Automated backup currently supports SQLite databases only")
+    database_path = database_url.database
+    if not database_path or not os.path.isfile(database_path):
+        raise HTTPException(status_code=404, detail="Companion database file was not found")
+    handle = tempfile.NamedTemporaryFile(prefix="allerflux-backup-", suffix=".sqlite3", delete=False)
+    backup_path = handle.name
+    handle.close()
+    source = sqlite3.connect(database_path)
+    destination = sqlite3.connect(backup_path)
+    try:
+        source.backup(destination)
+    except Exception:
+        os.unlink(backup_path)
+        raise HTTPException(status_code=500, detail="Unable to create a consistent SQLite backup")
+    finally:
+        source.close()
+        destination.close()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return FileResponse(
+        backup_path,
+        media_type="application/vnd.sqlite3",
+        filename=f"allerflux-backup-{stamp}.sqlite3",
+        background=BackgroundTask(os.unlink, backup_path),
+    )
+
 
 @app.get("/api/v1/overview", dependencies=[Depends(require_api_key)])
 async def overview():
