@@ -489,13 +489,21 @@ def reports_compare(
     now = datetime.now(timezone.utc)
     current_start = now - timedelta(days=days)
     previous_start = current_start - timedelta(days=days)
-    snapshots = db.scalars(select(SessionSnapshot).where(
-        SessionSnapshot.captured_at >= previous_start,
+    current_snapshots = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= current_start,
         SessionSnapshot.captured_at < now
     )).all()
-    events = db.scalars(select(PlaybackEvent).where(
-        PlaybackEvent.occurred_at >= previous_start,
+    previous_snapshots = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= previous_start,
+        SessionSnapshot.captured_at < current_start
+    )).all()
+    current_events = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.occurred_at >= current_start,
         PlaybackEvent.occurred_at < now
+    )).all()
+    previous_events = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.occurred_at >= previous_start,
+        PlaybackEvent.occurred_at < current_start
     )).all()
 
     def snapshot_metrics(rows):
@@ -513,10 +521,6 @@ def reports_compare(
             "completed_stops": sum(1 for row in rows if row.event_type == "PlaybackStop" and row.played_to_completion is True),
         }
 
-    current_snapshots = [row for row in snapshots if row.captured_at >= current_start]
-    previous_snapshots = [row for row in snapshots if row.captured_at < current_start]
-    current_events = [row for row in events if row.occurred_at >= current_start]
-    previous_events = [row for row in events if row.occurred_at < current_start]
     current = {**snapshot_metrics(current_snapshots), **event_metrics(current_events)}
     previous = {**snapshot_metrics(previous_snapshots), **event_metrics(previous_events)}
     metrics = {}
