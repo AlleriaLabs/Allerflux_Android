@@ -262,7 +262,7 @@ private fun csvCell(value: String): String = "\"" + value.replace("\"", "\"\"") 
 private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, details: ReportDetails,
     events: EventSummary, fromDate: String, toDate: String, timezone: String): String = buildString {
     appendLine("Allerflux viewing report")
-    appendLine("Preset period days,$days")
+    appendLine("Preset period days,$days (used only when no custom dates are selected)")
     appendLine("From date,${fromDate.ifBlank { "preset" }}")
     appendLine("To date,${toDate.ifBlank { "preset" }}")
     appendLine("Timezone,$timezone")
@@ -295,7 +295,7 @@ private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, d
 private fun buildReportPdf(output: OutputStream, days: Int, granularity: String, stats: ReportStats,
     details: ReportDetails, events: EventSummary, fromDate: String, toDate: String, timezone: String) {
     val lines = mutableListOf(
-        "Preset reporting period: $days days",
+        "Preset period: $days days (used only when no custom dates are selected)",
         "From date: ${fromDate.ifBlank { "preset" }}",
         "To date: ${toDate.ifBlank { "preset" }}",
         "Timezone: $timezone",
@@ -704,7 +704,7 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
-                    if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load $reportDays-day summary", reportError, "") }
+                    if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load $reportPeriodLabel", reportError, "") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Snapshots", reportStats.snapshots.toString(), reportPeriodLabel, Modifier.weight(1f))
                         MetricCard("Observed users", reportStats.users.toString(), "Distinct account IDs", Modifier.weight(1f))
