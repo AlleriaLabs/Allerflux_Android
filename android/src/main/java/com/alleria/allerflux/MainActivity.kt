@@ -584,7 +584,7 @@ fun AllerfluxApp(context: Context) {
                 border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                 modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically) {
                     listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
@@ -602,13 +602,15 @@ fun AllerfluxApp(context: Context) {
                             verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Surface(color = if (active) Color(0xFF243344) else Color.Transparent,
                                 shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.size(width = 54.dp, height = 32.dp)) {
+                                modifier = Modifier.size(width = 48.dp, height = 28.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(tabIcon, contentDescription = tab,
                                         tint = if (active) Accent else Muted,
-                                        modifier = Modifier.size(20.dp))
+                                        modifier = Modifier.size(18.dp))
                                 }
                             }
+                            Box(Modifier.width(if (active) 18.dp else 6.dp).height(2.dp)
+                                .background(if (active) AccentPurple else Color.Transparent, RoundedCornerShape(2.dp)))
                             Text(tab, color = if (active) Color.White else Muted,
                                 fontSize = 10.sp,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
@@ -672,10 +674,10 @@ fun AllerfluxApp(context: Context) {
                                 Text("SERVER SNAPSHOT", color = Accent, fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                                 Text(if (overview.connected) "Your media server, at a glance" else "Bring your media server into focus",
-                                    color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                 Text(if (overview.connected) "Live Jellyfin status with observed activity and library intelligence."
                                     else "Connect your Allerflux companion to see live sessions, library health and viewing trends.",
-                                    color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Icon(if (overview.connected) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
@@ -1398,10 +1400,10 @@ private fun SectionHeading(value: String) {
 @Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, color = Muted, fontSize = 12.sp)
-            Text(value, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-            Text(detail, color = Accent, fontSize = 10.sp)
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, color = Muted, fontSize = 11.sp)
+            Text(value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(detail, color = Accent, fontSize = 9.sp)
         }
     }
 }
