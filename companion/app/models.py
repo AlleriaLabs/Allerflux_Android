@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import DateTime, Integer, String, Text, Index
+from sqlalchemy import Boolean, DateTime, Integer, BigInteger, String, Text, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
@@ -21,3 +21,30 @@ class SessionSnapshot(Base):
     raw_json: Mapped[str] = mapped_column(Text, default="{}")
 
 Index("ix_snapshot_item_time", SessionSnapshot.item_id, SessionSnapshot.captured_at)
+
+
+class PlaybackEvent(Base):
+    __tablename__ = "playback_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True)
+    user_id: Mapped[str] = mapped_column(String(160), index=True)
+    username: Mapped[str] = mapped_column(String(160), default="Unknown user")
+    item_id: Mapped[str] = mapped_column(String(160), index=True)
+    item_name: Mapped[str] = mapped_column(String(500), default="Unknown title")
+    media_type: Mapped[str] = mapped_column(String(80), default="Unknown")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    position_ticks: Mapped[int] = mapped_column(BigInteger, default=0)
+    runtime_ticks: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    played_to_completion: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    play_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    device_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    device_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    client_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+Index("ix_playback_event_type_time", PlaybackEvent.event_type, PlaybackEvent.occurred_at)
+Index("ix_playback_event_user_time", PlaybackEvent.user_id, PlaybackEvent.occurred_at)
+Index("ix_playback_event_item_time", PlaybackEvent.item_id, PlaybackEvent.occurred_at)

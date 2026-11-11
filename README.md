@@ -12,6 +12,7 @@ Allerflux uses Architecture A:
 - Live Jellyfin library inventory counts for movies, series, episodes, songs, albums, and artists.
 - Activity screen backed by live Jellyfin sessions.
 - 30-day observed activity summary, daily trend chart, top observed titles and per-user activity rankings.
+- Optional Jellyfin Webhook plugin ingestion for deduplicated playback start/progress/stop events (requires separate webhook secret and plugin configuration).
 - Recent snapshot history and per-item observed analytics.
 - Automatic dashboard refresh every 60 seconds.
 - Companion API health and authenticated endpoints.
@@ -23,7 +24,7 @@ The companion stores periodic session snapshots. These support observed activity
 - `android/` — native Android application.
 - `companion/` — FastAPI service and database.
 - `deploy/` — Docker Compose and deployment examples.
-- `docs/` — setup, API, and analytics notes.
+- `docs/` — setup, API, analytics notes, and [completion roadmap](docs/ROADMAP.md).
 
 ## Security
 Keep Jellyfin credentials and the Allerflux API secret in server-side environment variables. Do not commit secrets. Use a strong unique companion secret and expose the API only through a trusted LAN, VPN, or HTTPS reverse proxy. The Android client currently permits cleartext HTTP for trusted home-LAN connections; do not forward port 8787 directly to the public internet.
@@ -34,6 +35,7 @@ Keep Jellyfin credentials and the Allerflux API secret in server-side environmen
 3. Copy `deploy/.env.example` to `deploy/.env` and set `JELLYFIN_URL`, `JELLYFIN_API_KEY`, and a strong `ALLERFLUX_API_KEY`.
 4. Deploy with Docker Compose and confirm `http://SERVER-LAN-IP:8787/health` returns HTTP 200.
 5. Configure the Android app with the companion URL and the same Allerflux API key.
+6. For event-based playback analytics, follow [Jellyfin webhook setup](docs/JELLYFIN_WEBHOOK_SETUP.md) and configure a separate `ALLERFLUX_WEBHOOK_KEY`.
 
 ## Android build
 GitHub Actions builds a debug APK when Android or companion source changes are pushed to `main`, or on manual dispatch. Download the `allerflux-debug-apk` artifact from a successful workflow run. Debug APKs are for direct testing, not Play Store release.

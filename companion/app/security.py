@@ -8,3 +8,11 @@ async def require_api_key(x_allerflux_key: str | None = Header(default=None)):
         raise HTTPException(status_code=503, detail="Companion API key is not configured")
     if not x_allerflux_key or not secrets.compare_digest(x_allerflux_key, expected):
         raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+async def require_webhook_key(x_allerflux_webhook_key: str | None = Header(default=None)):
+    expected = settings.allerflux_webhook_key
+    if not expected:
+        raise HTTPException(status_code=503, detail="Jellyfin webhook ingestion is not configured")
+    if not x_allerflux_webhook_key or not secrets.compare_digest(x_allerflux_webhook_key, expected):
+        raise HTTPException(status_code=401, detail="Invalid webhook key")
