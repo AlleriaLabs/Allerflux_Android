@@ -497,7 +497,7 @@ fun AllerfluxApp(context: Context) {
                     item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
                 }
                 if (selected == "Top Videos") {
-                    item { InfoCard("TITLE LEADERBOARD", "Most watched videos and episodes", "Ranked by observed playback activity over the last 30 days.", "") }
+                    item { InfoCard("TITLE LEADERBOARD", "Most watched videos and episodes", "Ranked by observed playback activity over the last $reportDays days.", "") }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO DATA", "No ranked titles yet", "Title rankings will appear as snapshots are collected.", "") }
                     items(reportDetails.topTitles) { title ->
                         InfoCard("RANK " + (reportDetails.topTitles.indexOf(title) + 1) + " · " + title.type,
