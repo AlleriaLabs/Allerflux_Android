@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from .database import Base
-from .models import JellyfinServer
+from .models import JellyfinServer\nfrom .config import settings\nfrom .server_security import encrypt_secret
 
 
 def _initial_schema(engine: Engine) -> None:
@@ -56,3 +56,24 @@ def run_migrations(engine: Engine) -> None:
                     "applied_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
+
+    # Adopt the legacy single-server environment configuration as the stable
+    # default registry entry. Existing analytics rows remain untouched.
+    if settings.jellyfin_api_key and settings.allerflux_encryption_key:
+        from sqlalchemy.orm import Session
+        from .database import SessionLocal
+        db: Session = SessionLocal()
+        try:
+            existing_default = db.query(JellyfinServer).filter_by(is_default=True).first()
+            if existing_default is None:
+                db.add(JellyfinServer(
+                    id="00000000-0000-4000-8000-000000000001",
+                    name="Default Jellyfin Server",
+                    url=settings.jellyfin_url.rstrip("/"),
+                    encrypted_api_key=encrypt_secret(settings.jellyfin_api_key),
+                    is_default=True,
+                    is_enabled=True,
+                ))
+                db.commit()
+        finally:
+            db.close()
