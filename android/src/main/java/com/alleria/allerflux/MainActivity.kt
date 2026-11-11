@@ -579,6 +579,19 @@ fun AllerfluxApp(context: Context) {
                         if (overview.connected) serverUrl else "Configure your companion URL and API key to load live server data.", error) }
                     item { InfoCard("DATA COLLECTION", "Snapshot-based analytics",
                         "The companion records periodic session observations. Snapshots are not exact playback events and do not establish watch duration or completion rates.", "") }
+                    item { SectionHeading("Explore your server") }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                QuickActionCard("Live activity", "Who is connected", Icons.Rounded.PlayCircle, Modifier.weight(1f)) { selected = "Activity" }
+                                QuickActionCard("Media library", "Browse inventory", Icons.Rounded.VideoLibrary, Modifier.weight(1f)) { selected = "Library" }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                QuickActionCard("Viewing reports", "Trends & insights", Icons.Rounded.QueryStats, Modifier.weight(1f)) { selected = "Reports" }
+                                QuickActionCard("Server alerts", "Health & idle sessions", Icons.Rounded.NotificationsActive, Modifier.weight(1f)) { selected = "Alerts" }
+                            }
+                        }
+                    }
                 }
 
                 if (selected == "Activity") {
@@ -591,18 +604,7 @@ fun AllerfluxApp(context: Context) {
                         "Current Jellyfin sessions will appear here when users start playback.", "") }
                     else items(sessions.size) { i ->
                         val s = sessions[i]
-                        InfoCard(
-                            s.user,
-                            if (s.state == "idle") "Not playing" else s.title,
-                            "${s.state.uppercase()}  •  ${s.device}",
-                            buildString {
-                                append(s.client)
-                                if (s.version != "Version unavailable") append(" · " + s.version)
-                                if (s.state == "idle") append(" · Idle: " + (s.idleSeconds?.let { formatDuration(it) } ?: "duration unavailable"))
-                                else if (s.position > 0) append(" · Position: " + (s.position / 10000000L / 60) + " min")
-                                append(" · Last activity: " + s.lastActivity)
-                            }
-                        )
+                        SessionCard(s)
                     }
                 }
 
@@ -819,9 +821,11 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
-                    item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
+                    item { Text("INSIGHTS", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
                     item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
+                    item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
+                    item { Text("MANAGE", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
                     item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
                     item { InfoCard("ALLERIA LABS", "One view of your media server",
@@ -944,6 +948,72 @@ fun AllerfluxApp(context: Context) {
     }
 }
 
+
+@Composable
+private fun QuickActionCard(title: String, detail: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier,
+    onClick: () -> Unit) {
+    Surface(
+        color = PanelElevated,
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = modifier.heightIn(min = 112.dp).clickable(onClick = onClick)
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(12.dp), modifier = Modifier.size(36.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = Accent, modifier = Modifier.size(20.dp))
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionCard(session: SessionRow) {
+    val statusColor = when (session.state) {
+        "playing" -> Accent
+        "paused" -> Color(0xFFFFC477)
+        else -> Muted
+    }
+    Surface(
+        color = Panel,
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(11.dp), modifier = Modifier.size(38.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Devices, contentDescription = null, tint = Accent, modifier = Modifier.size(19.dp))
+                    }
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(session.user, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(session.device, color = Muted, fontSize = 11.sp)
+                }
+                Surface(color = statusColor.copy(alpha = 0.13f), shape = RoundedCornerShape(30.dp)) {
+                    Text(session.state.uppercase(), color = statusColor, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+                }
+            }
+            Text(if (session.state == "idle") "Not playing" else session.title,
+                color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(buildString {
+                append(session.client)
+                if (session.version != "Version unavailable") append(" · " + session.version)
+                if (session.state == "idle") append(" · Idle " + (session.idleSeconds?.let { formatDuration(it) } ?: "duration unavailable"))
+                else if (session.position > 0) append(" · Position " + (session.position / 10000000L / 60) + " min")
+            }, color = Muted, fontSize = 11.sp)
+            Text("Last activity · " + session.lastActivity, color = Muted, fontSize = 10.sp)
+        }
+    }
+}
 
 @Composable
 private fun MoreDestination(title: String, subtitle: String, detail: String,
