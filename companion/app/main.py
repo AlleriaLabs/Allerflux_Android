@@ -466,6 +466,82 @@ async def overview():
         "history_mode": "snapshot_estimates",
     }
 
+@app.get("/api/v1/analytics/dashboard", dependencies=[Depends(require_api_key)])
+async def dashboard_analytics(db: Session = Depends(get_db)):
+    """Playback rankings use webhook events; watch time is explicitly an observation estimate."""
+    try:
+        sessions = await client.sessions()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jellyfin unavailable: {type(exc).__name__}")
+
+    playing = [s for s in sessions if s.get("NowPlayingItem") and not (s.get("PlayState") or {}).get("IsPaused")]
+    watching_users = {}
+    current_movies = []
+    for session in playing:
+        item = session.get("NowPlayingItem") or {}
+        uid = str(session.get("UserId") or "")
+        uname = str(session.get("UserName") or "Unknown user")
+        if uid:
+            watching_users[uid] = uname
+        if str(item.get("Type") or "").lower() == "movie":
+            current_movies.append({
+                "title": str(item.get("Name") or "Unknown movie"),
+                "username": uname,
+                "position_ticks": int((session.get("PlayState") or {}).get("PositionTicks") or 0),
+            })
+
+    now = datetime.now(timezone.utc)
+    starts = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.event_type == "PlaybackStart",
+        PlaybackEvent.occurred_at >= now - timedelta(days=30),
+    )).all()
+    stops = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.event_type == "PlaybackStop",
+        PlaybackEvent.occurred_at >= now - timedelta(days=30),
+        PlaybackEvent.played_to_completion.is_(True),
+    )).all()
+
+    def rank_events(rows):
+        grouped = {}
+        for row in rows:
+            if str(row.media_type or "").lower() != "movie":
+                continue
+            key = row.item_id or row.item_name
+            entry = grouped.setdefault(key, {"item_id": row.item_id, "title": row.item_name, "count": 0})
+            entry["count"] += 1
+        return sorted(grouped.values(), key=lambda x: (-x["count"], x["title"].lower()))[:10]
+
+    since_snapshots = now - timedelta(days=30)
+    snapshots = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= since_snapshots,
+        SessionSnapshot.play_state == "playing",
+    )).all()
+    watch = {}
+    interval_seconds = max(10, int(settings.poll_interval_seconds))
+    for row in snapshots:
+        if not row.user_id:
+            continue
+        entry = watch.setdefault(row.user_id, {"username": row.username or "Unknown user", "seconds": 0, "samples": 0})
+        entry["seconds"] += interval_seconds
+        entry["samples"] += 1
+    top_viewers = sorted([
+        {"username": value["username"], "observed_seconds": value["seconds"], "samples": value["samples"]}
+        for value in watch.values()
+    ], key=lambda x: (-x["observed_seconds"], x["username"].lower()))[:10]
+
+    return {
+        "window_days": 30,
+        "currently_watching_users": list(watching_users.values()),
+        "currently_watching_user_count": len(watching_users),
+        "currently_watched_movies": current_movies,
+        "most_played_movies": rank_events(starts),
+        "most_completed_movies": rank_events(stops),
+        "top_viewers_by_watch_time": top_viewers,
+        "watch_time_method": "Estimated from playing session snapshots multiplied by the configured poll interval; this is an observation estimate, not exact playback duration.",
+        "ranking_source": "Jellyfin PlaybackStart and explicitly completed PlaybackStop webhook events; last 30 days.",
+    }
+
+
 @app.get("/api/v1/analytics/last-24-hours", dependencies=[Depends(require_api_key)])
 def analytics_last_24_hours(db: Session = Depends(get_db)):
     """Hourly 24-hour trend from persisted Jellyfin session observations."""
