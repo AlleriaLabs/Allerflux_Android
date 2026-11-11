@@ -5,17 +5,17 @@ import sqlite3
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Body
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, delete, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session\nfrom pydantic import BaseModel, Field\nfrom uuid import uuid4
 from .config import settings
 from .database import engine, SessionLocal, get_db
 from .migrations import run_migrations
-from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent
+from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent, JellyfinServer\nfrom .server_security import encrypt_secret, decrypt_secret
 from .security import require_api_key, require_webhook_key
 from .events import normalize_playback_event
 from .jellyfin import JellyfinClient
@@ -207,7 +207,90 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Allerflux Companion API", version="0.2.0", lifespan=lifespan)
 
-@app.get("/health")
+
+class ServerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    url: str = Field(min_length=8, max_length=1000)
+    api_key: str = Field(min_length=1, max_length=2048)
+
+class ServerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    url: str | None = Field(default=None, min_length=8, max_length=1000)
+    api_key: str | None = Field(default=None, min_length=1, max_length=2048)
+    is_enabled: bool | None = None
+
+def server_public(row: JellyfinServer):
+    return {"id": row.id, "name": row.name, "url": row.url,
+        "is_default": row.is_default, "is_enabled": row.is_enabled,
+        "created_at": row.created_at.isoformat() if row.created_at else None}
+
+@app.get("/api/v1/servers", dependencies=[Depends(require_api_key)])
+def list_servers(db: Session = Depends(get_db)):
+    rows = db.scalars(select(JellyfinServer).order_by(JellyfinServer.is_default.desc(), JellyfinServer.name)).all()
+    return {"servers": [server_public(row) for row in rows]}
+
+@app.post("/api/v1/servers", dependencies=[Depends(require_api_key)], status_code=201)
+async def create_server(payload: ServerCreate, db: Session = Depends(get_db)):
+    try:
+        secret = encrypt_secret(payload.api_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    url = payload.url.strip().rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Server URL must use http:// or https://")
+    row = JellyfinServer(id=str(uuid4()), name=payload.name.strip(), url=url,
+        encrypted_api_key=secret, is_default=False, is_enabled=True)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return server_public(row)
+
+@app.put("/api/v1/servers/{server_id}", dependencies=[Depends(require_api_key)])
+def update_server(server_id: str, payload: ServerUpdate, db: Session = Depends(get_db)):
+    row = db.get(JellyfinServer, server_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if payload.name is not None: row.name = payload.name.strip()
+    if payload.url is not None:
+        url = payload.url.strip().rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=422, detail="Server URL must use http:// or https://")
+        row.url = url
+    if payload.api_key is not None:
+        try: row.encrypted_api_key = encrypt_secret(payload.api_key)
+        except RuntimeError as exc: raise HTTPException(status_code=503, detail=str(exc))
+    if payload.is_enabled is not None: row.is_enabled = payload.is_enabled
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return server_public(row)
+
+@app.delete("/api/v1/servers/{server_id}", dependencies=[Depends(require_api_key)])
+def delete_server(server_id: str, confirm: bool = Query(default=False), db: Session = Depends(get_db)):
+    row = db.get(JellyfinServer, server_id)
+    if row is None: raise HTTPException(status_code=404, detail="Server not found")
+    if not confirm: raise HTTPException(status_code=400, detail="Pass confirm=true to remove this server")
+    if row.is_default: raise HTTPException(status_code=400, detail="The default server cannot be removed")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True, "id": server_id, "history_preserved": True}
+
+@app.post("/api/v1/servers/{server_id}/test", dependencies=[Depends(require_api_key)])
+async def test_server(server_id: str, db: Session = Depends(get_db)):
+    row = db.get(JellyfinServer, server_id)
+    if row is None: raise HTTPException(status_code=404, detail="Server not found")
+    try:
+        token = decrypt_secret(row.encrypted_api_key)
+        async with httpx.AsyncClient(timeout=12) as session:
+            response = await session.get(row.url + "/System/Info",
+                headers={"Authorization": f'MediaBrowser Token="{token}"'})
+            response.raise_for_status()
+            info = response.json()
+        return {"connected": True, "server_name": info.get("ServerName"),
+            "version": info.get("Version"), "id": row.id}
+    except Exception as exc:
+        return {"connected": False, "error": type(exc).__name__, "id": row.id}
+
+\n@app.get("/health")
 async def health():
     return {"status": "ok", "service": "allerflux-companion"}
 
