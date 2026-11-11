@@ -1,6 +1,11 @@
 package com.alleria.allerflux
 
 import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +36,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.io.OutputStream
 
 private val Ink = Color(0xFF080D16)
 private val Panel = Color(0xFF111B29)
@@ -71,6 +77,8 @@ private data class HistoryRow(val user: String, val title: String, val type: Str
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
 private data class EventSummary(val starts: Int = 0, val stops: Int = 0, val completed: Int = 0, val users: Int = 0, val titles: Int = 0)
+private data class AlertSummary(val active: Int = 0, val total: Int = 0, val idleThreshold: Int = 1800, val cooldown: Int = 60, val outboundEnabled: Boolean = false)
+private data class AlertRow(val kind: String, val title: String, val message: String, val status: String, val time: String)
 private data class DailyStat(val date: String, val snapshots: Int, val users: Int, val titles: Int)
 private data class TopTitle(val name: String, val type: String, val samples: Int, val users: Int)
 private data class TopUser(val name: String, val samples: Int, val titles: Int)
@@ -162,6 +170,23 @@ private suspend fun loadEventSummary(base: String, key: String, days: Int): Even
         j.optInt("completed_stops"), j.optInt("distinct_users"), j.optInt("distinct_titles"))
 }
 
+
+private suspend fun loadAlertSummary(base: String, key: String): AlertSummary {
+    val j = JSONObject(apiGet(base, key, "/api/v1/alerts/summary"))
+    return AlertSummary(j.optInt("active_alerts"), j.optInt("total_events"),
+        j.optInt("idle_threshold_seconds", 1800), j.optInt("cooldown_minutes", 60),
+        j.optBoolean("outbound_notifications_enabled"))
+}
+
+private suspend fun loadAlertHistory(base: String, key: String): List<AlertRow> {
+    val a = JSONArray(apiGet(base, key, "/api/v1/alerts/history?limit=100"))
+    return (0 until a.length()).map {
+        val j = a.getJSONObject(it)
+        AlertRow(j.optString("kind"), j.optString("title"), j.optString("message"),
+            j.optString("status"), j.optString("created_at"))
+    }
+}
+
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
     val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=200"))
     return (0 until a.length()).map {
@@ -169,6 +194,108 @@ private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
         HistoryRow(j.optString("user", "Unknown user"), j.optString("item_name", "Unknown title"),
             j.optString("media_type", "Media"), j.optString("state", "unknown"), j.optString("captured_at"))
     }
+}
+
+
+private fun csvCell(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
+
+private fun buildReportCsv(days: Int, stats: ReportStats, details: ReportDetails, events: EventSummary): String = buildString {
+    appendLine("Allerflux viewing report")
+    appendLine("Period days,$days")
+    appendLine("Snapshot observations,${stats.snapshots}")
+    appendLine("Observed users,${stats.users}")
+    appendLine("Observed titles,${stats.titles}")
+    appendLine("Playing samples,${stats.playing}")
+    appendLine("Paused samples,${stats.paused}")
+    appendLine("Playback start events,${events.starts}")
+    appendLine("Playback stop events,${events.stops}")
+    appendLine("Explicit completed stops,${events.completed}")
+    appendLine("Distinct event viewers,${events.users}")
+    appendLine()
+    appendLine("Daily observations")
+    appendLine("Date,Snapshots,Distinct viewers,Distinct titles")
+    details.daily.forEach { appendLine(listOf(it.date, it.snapshots, it.users, it.titles).joinToString(",")) }
+    appendLine()
+    appendLine("Top observed titles")
+    appendLine("Title,Media type,Observed samples,Distinct viewers")
+    details.topTitles.forEach { appendLine(listOf(csvCell(it.name), csvCell(it.type), it.samples, it.users).joinToString(",")) }
+    appendLine()
+    appendLine("Top observed viewers")
+    appendLine("Username,Observed samples,Distinct titles")
+    details.topUsers.forEach { appendLine(listOf(csvCell(it.name), it.samples, it.titles).joinToString(",")) }
+    appendLine()
+    appendLine("Accuracy: snapshot counts are periodic observations, not exact plays or watch duration. Event counts come from received Jellyfin webhook notifications; completion is counted only when explicitly supplied.")
+}
+
+private fun buildReportPdf(output: OutputStream, days: Int, stats: ReportStats,
+    details: ReportDetails, events: EventSummary) {
+    val lines = mutableListOf(
+        "Reporting period: $days days",
+        "Snapshot observations: ${stats.snapshots}",
+        "Observed users: ${stats.users}",
+        "Observed titles: ${stats.titles}",
+        "Playing samples: ${stats.playing}",
+        "Paused samples: ${stats.paused}",
+        "Playback starts: ${events.starts}",
+        "Playback stops: ${events.stops}",
+        "Explicit completions: ${events.completed}",
+        "",
+        "DAILY OBSERVATIONS"
+    )
+    details.daily.takeLast(14).forEach { lines.add("${it.date}  ·  ${it.users} viewers  ·  ${it.titles} titles  ·  ${it.snapshots} samples") }
+    lines.add("")
+    lines.add("TOP OBSERVED TITLES")
+    details.topTitles.take(8).forEachIndexed { index, item -> lines.add("${index + 1}. ${item.name}  ·  ${item.samples} samples  ·  ${item.users} viewers") }
+    lines.add("")
+    lines.add("TOP OBSERVED VIEWERS")
+    details.topUsers.take(8).forEachIndexed { index, item -> lines.add("${index + 1}. ${item.name}  ·  ${item.samples} samples  ·  ${item.titles} titles") }
+    lines.add("")
+    lines.add("Data note: snapshots are periodic observations, not exact plays or watch duration.")
+    lines.add("Event counts are received Jellyfin webhook notifications. Stops are not automatically completions.")
+    val document = PdfDocument()
+    val chunks = lines.chunked(29)
+    chunks.forEachIndexed { pageIndex, chunk ->
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageIndex + 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas = page.canvas
+        val header = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(10, 20, 32)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, 0f, 595f, 112f, header)
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(112, 225, 207)
+            textSize = 11f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(30, 42, 56)
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        canvas.drawText("ALLERFLUX", 40f, 48f, titlePaint)
+        canvas.drawText("MEDIA SERVER INTELLIGENCE  ·  $days-DAY REPORT", 40f, 76f, metaPaint)
+        var y = 145f
+        chunk.forEach { line ->
+            if (line.isNotBlank() && (line.startsWith("DAILY") || line.startsWith("TOP "))) {
+                bodyPaint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                bodyPaint.textSize = 13f
+            } else {
+                bodyPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                bodyPaint.textSize = 11.5f
+            }
+            canvas.drawText(line.take(92), 40f, y, bodyPaint)
+            y += 21f
+        }
+        document.finishPage(page)
+    }
+    document.writeTo(output)
+    document.close()
 }
 
 @Composable
@@ -185,8 +312,14 @@ fun AllerfluxApp(context: Context) {
     var reportDetails by remember { mutableStateOf(ReportDetails()) }
     var eventSummary by remember { mutableStateOf(EventSummary()) }
     var eventError by remember { mutableStateOf("") }
+    var alertSummary by remember { mutableStateOf(AlertSummary()) }
+    var alertHistory by remember { mutableStateOf<List<AlertRow>>(emptyList()) }
+    var alertError by remember { mutableStateOf("") }
     var reportDays by remember { mutableIntStateOf(30) }
     var reportError by remember { mutableStateOf("") }
+    var exportMessage by remember { mutableStateOf("") }
+    var pendingCsv by remember { mutableStateOf("") }
+    var pendingPdfDays by remember { mutableIntStateOf(30) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
@@ -195,6 +328,34 @@ fun AllerfluxApp(context: Context) {
     var urlDraft by remember { mutableStateOf(serverUrl) }
     var keyDraft by remember { mutableStateOf(apiKey) }
     val scope = rememberCoroutineScope()
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) {
+            val content = pendingCsv
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                            ?: error("Unable to open destination")
+                    }
+                }
+                exportMessage = if (result.isSuccess) "CSV report saved." else "CSV export failed: ${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
+    val pdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) {
+            val days = pendingPdfDays
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { buildReportPdf(it, days, reportStats, reportDetails, eventSummary) }
+                            ?: error("Unable to open destination")
+                    }
+                }
+                exportMessage = if (result.isSuccess) "PDF report saved." else "PDF export failed: ${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
 
     fun refresh() {
         if (serverUrl.isBlank() || apiKey.isBlank()) {
@@ -217,6 +378,8 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
             try { eventSummary = loadEventSummary(serverUrl, apiKey, reportDays); eventError = "" }
             catch (e: Exception) { eventError = e.message ?: "Playback events are unavailable" }
+            try { alertSummary = loadAlertSummary(serverUrl, apiKey); alertHistory = loadAlertHistory(serverUrl, apiKey); alertError = "" }
+            catch (e: Exception) { alertError = e.message ?: "Alert history is unavailable" }
             loading = false
         }
     }
@@ -319,6 +482,7 @@ fun AllerfluxApp(context: Context) {
                     "Library" -> "Media library"
                     "Reports" -> "Viewing analytics"
                     "More" -> "Workspace & tools"
+                    "Alerts" -> "Server alerts & recovery history"
                     "Top Viewers" -> "Most active viewers"
                     "Top Videos" -> "Most watched titles"
                     "Settings" -> "Connection & preferences"
@@ -422,6 +586,33 @@ fun AllerfluxApp(context: Context) {
                         item { Text("Event-based counts are separate from periodic snapshot estimates. A stop is not automatically a completion, and watch duration is not inferred.",
                             color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
                     }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("EXPORT REPORT", color = Muted, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedButton(onClick = {
+                                    pendingCsv = buildReportCsv(reportDays, reportStats, reportDetails, eventSummary)
+                                    exportMessage = ""
+                                    csvLauncher.launch("allerflux-report-${reportDays}d.csv")
+                                }, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.TableView, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Export CSV")
+                                }
+                                OutlinedButton(onClick = {
+                                    pendingPdfDays = reportDays
+                                    exportMessage = ""
+                                    pdfLauncher.launch("allerflux-report-${reportDays}d.pdf")
+                                }, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Export PDF")
+                                }
+                            }
+                            if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 12.sp)
+                        }
+                    }
                     item { SectionHeading("Daily observed activity") }
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
@@ -522,12 +713,40 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
+                    item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
                     item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
                     item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
                     item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
                     item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
                     item { InfoCard("ALLERIA LABS", "One view of your media server",
                         "Live server status, session intelligence, library inventory and observed viewing trends.", "Built for self-hosted Jellyfin") }
+                }
+
+                if (selected == "Alerts") {
+                    if (alertError.isNotBlank()) {
+                        item { InfoCard("ALERTS UNAVAILABLE", "Could not load alert history",
+                            "Update the companion to a build with alert support.", alertError) }
+                    } else {
+                        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricCard("Active alerts", alertSummary.active.toString(), "Needs attention", Modifier.weight(1f))
+                            MetricCard("Alert events", alertSummary.total.toString(), "Trigger and recovery history", Modifier.weight(1f))
+                        } }
+                        item { InfoCard("IDLE SESSION RULE", "Threshold: " + formatDuration(alertSummary.idleThreshold.toLong()),
+                            "Alerts are raised only when Jellyfin provides a usable last-activity timestamp. Cooldown: ${alertSummary.cooldown} minutes.",
+                            if (alertSummary.outboundEnabled) "Outbound webhook notifications enabled" else "In-app history only · outbound webhook not configured") }
+                        item { Text("Recent alert history", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
+                        if (alertHistory.isEmpty()) {
+                            item { InfoCard("ALL CLEAR", "No alert history yet",
+                                "Idle-session and server-availability events will appear here when detected.", "") }
+                        } else {
+                            items(alertHistory) { alert ->
+                                InfoCard(alert.kind.replace("_", " ").uppercase() + " · " + alert.status.uppercase(),
+                                    alert.title, alert.message, alert.time.replace("T", " ").take(19))
+                            }
+                        }
+                        item { Text("Allerflux alerts are informational and read-only. The app never disconnects or changes Jellyfin sessions.",
+                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                    }
                 }
                 if (selected == "Settings") {
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
@@ -563,7 +782,7 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("DATA ACCURACY", "Transparent analytics", "Historical reports use periodic observations. Exact playback events and watch duration are not yet available.", "") }
                     item { OutlinedButton(onClick = { selected = "Settings" }) { Text("Back to Settings") } }
                 }
-                if (selected in listOf("Overview", "Activity", "Library", "Reports")) {
+                if (selected in listOf("Overview", "Activity", "Library", "Reports", "Alerts")) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { refresh() }, enabled = !loading,

@@ -48,3 +48,25 @@ class PlaybackEvent(Base):
 Index("ix_playback_event_type_time", PlaybackEvent.event_type, PlaybackEvent.occurred_at)
 Index("ix_playback_event_user_time", PlaybackEvent.user_id, PlaybackEvent.occurred_at)
 Index("ix_playback_event_item_time", PlaybackEvent.item_id, PlaybackEvent.occurred_at)
+
+
+class AlertState(Base):
+    __tablename__ = "alert_states"
+    alert_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AlertEvent(Base):
+    __tablename__ = "alert_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alert_key: Mapped[str] = mapped_column(String(255), index=True)
+    kind: Mapped[str] = mapped_column(String(80), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    message: Mapped[str] = mapped_column(String(1000))
+    status: Mapped[str] = mapped_column(String(30), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+Index("ix_alert_event_kind_time", AlertEvent.kind, AlertEvent.created_at)

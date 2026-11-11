@@ -1,4 +1,5 @@
 import asyncio, json
+import httpx
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -7,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .config import settings
 from .database import Base, engine, SessionLocal, get_db
-from .models import SessionSnapshot, PlaybackEvent
+from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent
 from .security import require_api_key, require_webhook_key
 from .events import normalize_playback_event
 from .jellyfin import JellyfinClient
@@ -57,15 +58,83 @@ def item_info(s):
         "raw_json": json.dumps(s, separators=(",", ":")),
     }
 
+
+def change_alert_state(alert_key: str, kind: str, title: str, message: str, active: bool):
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        state = db.get(AlertState, alert_key)
+        if state is None:
+            state = AlertState(alert_key=alert_key, is_active=False, updated_at=now)
+            db.add(state)
+            db.flush()
+        if active:
+            if state.is_active:
+                return None
+            state.is_active = True
+            cooldown = max(0, settings.alert_cooldown_minutes)
+            last_triggered = state.last_triggered_at
+            if last_triggered and last_triggered.tzinfo is None:
+                last_triggered = last_triggered.replace(tzinfo=timezone.utc)
+            if last_triggered and now - last_triggered < timedelta(minutes=cooldown):
+                state.updated_at = now
+                db.commit()
+                return None
+            state.last_triggered_at = now
+            status = "active"
+        else:
+            if not state.is_active:
+                return None
+            state.is_active = False
+            status = "resolved"
+        state.updated_at = now
+        event = AlertEvent(alert_key=alert_key, kind=kind, title=title, message=message,
+            status=status, created_at=now)
+        db.add(event)
+        db.commit()
+        return {
+            "alert_key": alert_key, "kind": kind, "title": title,
+            "message": message, "status": status, "created_at": now.isoformat()
+        }
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+async def notify_alert(event: dict | None):
+    if not event or not settings.alert_webhook_url:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.post(settings.alert_webhook_url, json=event)
+    except Exception:
+        # Alert history remains persisted even when an external notifier is unavailable.
+        pass
+
+
 async def poll_once():
     if not settings.jellyfin_api_key:
         return
     sessions = await client.sessions()
+    await notify_alert(change_alert_state("server:unreachable", "server_unreachable",
+        "Jellyfin connection restored", "The companion can reach the Jellyfin server again.", False))
+
+    current_idle_alerts = set()
     db = SessionLocal()
     try:
         now = datetime.now(timezone.utc)
         for s in sessions:
             data = item_info(s)
+            if data["play_state"] == "idle" and data["idle_seconds"] is not None:
+                if data["idle_seconds"] >= max(60, settings.idle_alert_threshold_seconds):
+                    alert_key = "idle:" + data["session_id"]
+                    current_idle_alerts.add(alert_key)
+                    message = (f'{data["username"] or "A user"} has an idle session on '
+                        f'{data["device_name"] or "an unknown device"} for {data["idle_seconds"]} seconds.')
+                    await notify_alert(change_alert_state(alert_key, "idle_session",
+                        "Idle Jellyfin session", message, True))
             if not data["item_id"]:
                 continue
             db.add(SessionSnapshot(
@@ -81,12 +150,27 @@ async def poll_once():
     finally:
         db.close()
 
+    state_db = SessionLocal()
+    try:
+        active_idle = state_db.scalars(select(AlertState).where(
+            AlertState.is_active == True, AlertState.alert_key.like("idle:%"))).all()
+        stale_keys = [row.alert_key for row in active_idle if row.alert_key not in current_idle_alerts]
+    finally:
+        state_db.close()
+    for alert_key in stale_keys:
+        await notify_alert(change_alert_state(alert_key, "idle_session",
+            "Idle session cleared", "The session is no longer above the configured idle threshold.", False))
+
+
 async def poll_loop():
     while True:
         try:
             await poll_once()
-        except Exception:
-            pass
+        except Exception as exc:
+            event = change_alert_state("server:unreachable", "server_unreachable",
+                "Jellyfin server unavailable",
+                f"The companion could not poll Jellyfin ({type(exc).__name__}).", True)
+            await notify_alert(event)
         await asyncio.sleep(max(10, settings.poll_interval_seconds))
 
 @asynccontextmanager
@@ -131,6 +215,32 @@ async def jellyfin_webhook(request: Request, db: Session = Depends(get_db)):
             return {"accepted": True, "duplicate": True, "event_type": existing.event_type}
         raise HTTPException(status_code=500, detail="Unable to persist playback event")
     return {"accepted": True, "duplicate": False, "event_type": record.event_type}
+
+
+
+@app.get("/api/v1/alerts/summary", dependencies=[Depends(require_api_key)])
+def alerts_summary(db: Session = Depends(get_db)):
+    active = db.scalars(select(AlertState).where(AlertState.is_active == True)).all()
+    total = db.query(AlertEvent).count()
+    return {
+        "active_alerts": len(active),
+        "total_events": total,
+        "idle_threshold_seconds": max(60, settings.idle_alert_threshold_seconds),
+        "cooldown_minutes": max(0, settings.alert_cooldown_minutes),
+        "outbound_notifications_enabled": bool(settings.alert_webhook_url),
+    }
+
+
+@app.get("/api/v1/alerts/history", dependencies=[Depends(require_api_key)])
+def alerts_history(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(select(AlertEvent).order_by(AlertEvent.created_at.desc()).limit(limit)).all()
+    return [{
+        "alert_key": row.alert_key, "kind": row.kind, "title": row.title,
+        "message": row.message, "status": row.status, "created_at": row.created_at.isoformat()
+    } for row in rows]
 
 
 @app.get("/api/v1/events/summary", dependencies=[Depends(require_api_key)])
