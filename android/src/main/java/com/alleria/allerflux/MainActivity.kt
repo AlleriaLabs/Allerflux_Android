@@ -580,6 +580,19 @@ fun AllerfluxApp(context: Context) {
                         if (overview.connected) serverUrl else "Configure your companion URL and API key to load live server data.", error) }
                     item { InfoCard("DATA COLLECTION", "Snapshot-based analytics",
                         "The companion records periodic session observations. Snapshots are not exact playback events and do not establish watch duration or completion rates.", "") }
+                    item { SectionHeading("Explore your server") }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                QuickActionCard("Live activity", "Who is connected", Icons.Rounded.PlayCircle, Modifier.weight(1f)) { selected = "Activity" }
+                                QuickActionCard("Media library", "Browse inventory", Icons.Rounded.VideoLibrary, Modifier.weight(1f)) { selected = "Library" }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                QuickActionCard("Viewing reports", "Trends & insights", Icons.Rounded.QueryStats, Modifier.weight(1f)) { selected = "Reports" }
+                                QuickActionCard("Server alerts", "Health & idle sessions", Icons.Rounded.NotificationsActive, Modifier.weight(1f)) { selected = "Alerts" }
+                            }
+                        }
+                    }
                 }
 
                 if (selected == "Activity") {
@@ -812,9 +825,11 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
-                    item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
+                    item { Text("INSIGHTS", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
                     item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
+                    item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
+                    item { Text("MANAGE", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
                     item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
                     item { InfoCard("ALLERIA LABS", "One view of your media server",
@@ -941,6 +956,27 @@ fun AllerfluxApp(context: Context) {
     }
 }
 
+
+@Composable
+private fun QuickActionCard(title: String, detail: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier,
+    onClick: () -> Unit) {
+    Surface(color = PanelElevated, shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = modifier.heightIn(min = 112.dp).clickable(onClick = onClick)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(12.dp), modifier = Modifier.size(36.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = Accent, modifier = Modifier.size(20.dp))
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            }
+        }
+    }
+}
 
 @Composable
 private fun MoreDestination(title: String, subtitle: String, detail: String,
