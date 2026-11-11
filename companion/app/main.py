@@ -210,7 +210,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Allerflux Companion API", version="0.2.0", lifespan=lifespan)
 
-
 class ServerCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     url: str = Field(min_length=8, max_length=1000)
@@ -292,6 +291,9 @@ async def test_server(server_id: str, db: Session = Depends(get_db)):
             "version": info.get("Version"), "id": row.id}
     except Exception as exc:
         return {"connected": False, "error": type(exc).__name__, "id": row.id}
+
+
+
 
 
 @app.get("/health")
