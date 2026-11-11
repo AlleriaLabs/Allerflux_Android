@@ -239,13 +239,65 @@ fun AllerfluxApp(context: Context) {
             LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
                 contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("ALLERIA LABS  /  MEDIA INTELLIGENCE", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-                            Text("Allerflux", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                            Text("Your Media Server Intelligence", color = Muted, fontSize = 13.sp)
+                    Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                        modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.size(50.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = Accent,
+                                        modifier = Modifier.size(27.dp))
+                                }
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("ALLERIA LABS", color = Accent, fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                                Text("Allerflux", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                                Text("Media server intelligence", color = Muted, fontSize = 11.sp)
+                            }
+                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Surface(color = if (overview.connected) Color(0xFF173B36) else Color(0xFF3B2B2B),
+                                    shape = RoundedCornerShape(30.dp)) {
+                                    Text(if (overview.connected) "ONLINE" else "SETUP",
+                                        color = if (overview.connected) Accent else Color(0xFFFFB5A8),
+                                        fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+                                }
+                                IconButton(onClick = { selected = "Settings" }) {
+                                    Icon(Icons.Rounded.Settings, "Settings", tint = Color.White)
+                                }
+                            }
                         }
-                        IconButton(onClick = { selected = "Settings" }) { Icon(Icons.Rounded.Settings, "Settings", tint = Color.White) }
+                    }
+                }
+                if (selected == "Overview") {
+                    item {
+                        Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                            modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("SERVER SNAPSHOT", color = Accent, fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                                Text(if (overview.connected) "Your media server, at a glance" else "Bring your media server into focus",
+                                    color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                Text(if (overview.connected) "Live Jellyfin status with observed activity and library intelligence."
+                                    else "Connect your Allerflux companion to see live sessions, library health and viewing trends.",
+                                    color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(if (overview.connected) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
+                                        contentDescription = null,
+                                        tint = if (overview.connected) Accent else Color(0xFFFFB86B),
+                                        modifier = Modifier.size(16.dp))
+                                    Text(if (overview.connected) "Jellyfin connection established" else "Connection setup required",
+                                        color = if (overview.connected) Accent else Color(0xFFFFB86B),
+                                        fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
                     }
                 }
                 item { SectionHeading(when (selected) {
