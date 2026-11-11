@@ -528,14 +528,25 @@ fun AllerfluxApp(context: Context) {
             urlDraft = active.url
             keyDraft = active.apiKey
         }
-        val online = mutableSetOf<String>()
-        savedServers.forEach { server ->
-            val connected = withContext(Dispatchers.IO) {
-                runCatching { loadOverview(server.url, server.apiKey).connected }.getOrDefault(false)
+        // Initial checks can race companion/Jellyfin startup. Retry transient failures,
+        // then keep every registered server status fresh while the Servers page is open.
+        while (true) {
+            val online = mutableSetOf<String>()
+            savedServers.forEach { server ->
+                var connected = false
+                repeat(2) { attempt ->
+                    if (!connected) {
+                        connected = withContext(Dispatchers.IO) {
+                            runCatching { loadOverview(server.url, server.apiKey).connected }.getOrDefault(false)
+                        }
+                        if (!connected && attempt == 0) delay(1_200)
+                    }
+                }
+                if (connected) online.add(server.id)
             }
-            if (connected) online.add(server.id)
+            onlineServerIds = online
+            delay(30_000)
         }
-        onlineServerIds = online
     }
 
     fun refresh() {
@@ -547,8 +558,15 @@ fun AllerfluxApp(context: Context) {
         scope.launch {
             loading = true
             error = ""
-            try { overview = loadOverview(serverUrl, apiKey) }
-            catch (e: Exception) { overview = Overview(message = "Connection failed"); error = e.message ?: "Unable to load overview" }
+            try {
+                overview = loadOverview(serverUrl, apiKey)
+                onlineServerIds = if (overview.connected) onlineServerIds + selectedServerId
+                    else onlineServerIds - selectedServerId
+            } catch (e: Exception) {
+                overview = Overview(message = "Connection failed")
+                onlineServerIds = onlineServerIds - selectedServerId
+                error = e.message ?: "Unable to load overview"
+            }
             try { sessions = loadSessions(serverUrl, apiKey); activityError = "" }
             catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
             try { history = loadHistory(serverUrl, apiKey); historyError = "" }
