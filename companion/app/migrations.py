@@ -10,7 +10,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from .database import Base
-from .models import JellyfinServer\nfrom .config import settings\nfrom .server_security import encrypt_secret
+from .models import JellyfinServer
+from .config import settings
+from .server_security import encrypt_secret
 
 
 def _initial_schema(engine: Engine) -> None:
