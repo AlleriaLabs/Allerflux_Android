@@ -44,13 +44,13 @@ import java.net.URL
 import java.io.OutputStream
 
 // Premium Allerion-style surfaces with Allerflux's own orbital emblem and cyan/purple identity.
-private val Ink = Color(0xFF090A10)
-private val Panel = Color(0xFF12141E)
-private val PanelElevated = Color(0xFF191C29)
+private val Ink = Color(0xFF08090D)
+private val Panel = Color(0xFF101116)
+private val PanelElevated = Color(0xFF171A22)
 private val Accent = Color(0xFF39D5F2)
 private val AccentPurple = Color(0xFF9B72FF)
 private val Muted = Color(0xFF9AA3B5)
-private val Border = Color(0xFF292D3B)
+private val Border = Color(0xFF242833)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -597,14 +597,14 @@ fun AllerfluxApp(context: Context) {
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
+                    Surface(color = PanelElevated, shape = RoundedCornerShape(16.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                         modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+                        Row(Modifier.padding(horizontal = 13.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                             Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.size(50.dp)) {
+                                modifier = Modifier.size(42.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
                                     if (logoBitmap != null) {
                                         Image(bitmap = logoBitmap,
@@ -619,10 +619,10 @@ fun AllerfluxApp(context: Context) {
                                 }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("ALLERIA LABS", color = Accent, fontSize = 9.sp,
+                                Text("ALLERIA LABS", color = Accent, fontSize = 8.sp,
                                     fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
-                                Text("Allerflux", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                                Text("Media server intelligence", color = Muted, fontSize = 11.sp)
+                                Text("Allerflux", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp, letterSpacing = 0.8.sp)
                             }
                             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Surface(color = if (overview.connected) Color(0xFF173B36) else Color(0xFF3B2B2B),
@@ -641,7 +641,7 @@ fun AllerfluxApp(context: Context) {
                 }
                 if (selected == "Overview") {
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+                        Surface(color = Panel, shape = RoundedCornerShape(16.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1009,7 +1009,7 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("Companion configuration", color = Color.White, fontWeight = FontWeight.SemiBold)
                                 OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
