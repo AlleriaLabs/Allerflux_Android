@@ -46,13 +46,13 @@ import java.net.URL
 import java.io.OutputStream
 
 // Premium Allerion-style surfaces with Allerflux's own orbital emblem and cyan/purple identity.
-private val Ink = Color(0xFF08090D)
-private val Panel = Color(0xFF101116)
-private val PanelElevated = Color(0xFF171A22)
+private val Ink = Color(0xFF0B0D12)
+private val Panel = Color(0xFF151820)
+private val PanelElevated = Color(0xFF1C202A)
 private val Accent = Color(0xFF39D5F2)
 private val AccentPurple = Color(0xFF9B72FF)
 private val Muted = Color(0xFF9AA3B5)
-private val Border = Color(0xFF242833)
+private val Border = Color(0xFF2A303B)
 private val BrandRed = Color(0xFFFF4057)
 private val StatusGreen = Color(0xFF42D6A4)
 
@@ -654,8 +654,8 @@ fun AllerfluxApp(context: Context) {
             }
         }) { padding ->
             LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 item {
                     if (selected == "Servers") {
                         Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 9.dp, bottom = 22.dp),
@@ -1536,7 +1536,12 @@ private fun ServerStatCard(value: String, label: String, modifier: Modifier = Mo
 
 @Composable
 private fun SectionHeading(value: String) {
-    Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(value.uppercase(), color = Color.White, fontSize = 20.sp,
+            fontWeight = FontWeight.Bold, letterSpacing = (-0.35).sp)
+        Box(Modifier.width(34.dp).height(2.dp)
+            .background(AccentPurple, RoundedCornerShape(2.dp)))
+    }
 }
 @Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
