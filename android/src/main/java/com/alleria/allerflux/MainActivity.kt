@@ -719,14 +719,14 @@ fun AllerfluxApp(context: Context) {
                             if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 12.sp)
                         }
                     }
-                    item { SectionHeading("Daily observed activity") }
+                    item { SectionHeading("${reportGranularity.replaceFirstChar { it.uppercase() }} observed activity") }
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text("● Viewers", color = Accent, fontSize = 11.sp)
-                                    Text("● Videos", color = Color(0xFFFFB86B), fontSize = 11.sp)
+                                    Text("● Titles", color = Color(0xFFFFB86B), fontSize = 11.sp)
                                 }
                                 if (reportDetails.daily.isEmpty()) {
                                     Text("No observations recorded in this period.", color = Muted, fontSize = 13.sp)
