@@ -11,11 +11,11 @@ Allerflux uses Architecture A:
 - Server overview, registered users, active sessions, and current playback state.
 - Live Jellyfin library inventory counts for movies, series, episodes, songs, albums, and artists.
 - Activity screen backed by live Jellyfin sessions.
-- 30-day observed activity summary, daily trend chart, top observed titles and per-user activity rankings.
+- 7/30/90/365-day and custom inclusive date-range analytics with IANA timezone support, daily/weekly/monthly rollups, previous-period comparisons, top observed titles and per-user activity rankings.
 - Optional Jellyfin Webhook plugin ingestion for deduplicated playback start/progress/stop events (requires separate webhook secret and plugin configuration).
 - Recent snapshot history and per-item observed analytics.
 - Automatic dashboard refresh every 60 seconds.
-- Companion API health and authenticated endpoints.
+- Companion API health and authenticated endpoints, versioned additive schema initialization, and automated migration/data-preservation tests.
 
 ## Analytics accuracy
 The companion stores periodic session snapshots. These support observed activity trends but are not a complete playback event log. Snapshot records cannot establish exact play counts, playback starts, stop times, completion, or total watch duration. Those metrics require reliable Jellyfin webhook/playback event ingestion and reconciliation. Allerflux labels snapshot-derived values as observations and does not report them as exact watch analytics.
