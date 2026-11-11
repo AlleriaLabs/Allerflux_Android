@@ -455,7 +455,8 @@ fun AllerfluxApp(context: Context) {
                         OutlinedButton(onClick = { selected = "Settings" }) { Text("Settings") }
                     }
                 }
-                item { Text("Allerflux  •  v0.4.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.5.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                }
             }
         }
 
@@ -463,7 +464,7 @@ fun AllerfluxApp(context: Context) {
 }
 
 @Composable
-private fun InfoCardtitle: String, heading: String, detail: String, extra: String) {
+private fun InfoCard(title: String, heading: String, detail: String, extra: String) {
     Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title.uppercase(), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
