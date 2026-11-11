@@ -59,3 +59,27 @@ Target architecture: one Allerflux companion installation manages multiple Jelly
 6. Migration drill and multi-server end-to-end verification before release.
 
 The initial UI theme commit does not claim multi-server backend support. Multi-server is complete only after the data-isolation and migration acceptance criteria above pass.
+
+## Multi-server registry implementation status
+
+The companion now has an authenticated server registry API:
+- `GET /api/v1/servers`
+- `POST /api/v1/servers`
+- `PUT /api/v1/servers/{server_id}`
+- `POST /api/v1/servers/{server_id}/test`
+- `DELETE /api/v1/servers/{server_id}?confirm=true`
+
+Server API keys are encrypted with AES-256-GCM. Configure a persistent
+`ALLERFLUX_ENCRYPTION_KEY` before adding server credentials. Generate it once
+with the command in `companion/.env.example`; store it in the deployment
+secret file and a secure backup. Never rotate or regenerate it without first
+decrypting and re-encrypting all registered credentials.
+
+The existing `JELLYFIN_URL` / `JELLYFIN_API_KEY` connection is adopted as a
+"default" registry entry on startup when the encryption key is configured.
+This registry is a foundation, not a claim that analytics are already
+multi-tenant: legacy snapshots/events/alerts and the existing global poller
+and analytics endpoints are not yet partitioned by server ID. Do not add a
+second production server until server-scoped polling, webhooks, and every
+analytics query are delivered and tested. Removing a registry entry does not
+delete historical analytics.
