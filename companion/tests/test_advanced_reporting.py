@@ -81,6 +81,24 @@ class AdvancedReportingTests(unittest.TestCase):
             reports_summary(days=30, timezone_name="Not/A_Real_Zone", db=self.db)
         self.assertEqual(bad_timezone.exception.status_code, 422)
 
+    def test_previous_period_uses_local_calendar_boundaries_across_dst(self):
+        local_tz = ZoneInfo("America/New_York")
+        previous_midnight_utc = datetime.combine(
+            date(2026, 2, 23), datetime.min.time(), tzinfo=local_tz
+        ).astimezone(timezone.utc)
+        self.db.add(SessionSnapshot(
+            jellyfin_session_id="dst-previous", user_id="dst-user", username="DST Viewer",
+            item_id="dst-item", item_name="DST Previous Period", media_type="Movie",
+            play_state="playing", position_ticks=1, captured_at=previous_midnight_utc, raw_json="{}"
+        ))
+        self.db.commit()
+        result = reports_compare(
+            days=7, from_date=date(2026, 3, 2), to_date=date(2026, 3, 8),
+            timezone_name="America/New_York", db=self.db
+        )
+        self.assertEqual(result["metrics"]["snapshot_count"]["previous"], 1)
+        self.assertEqual(result["metrics"]["snapshot_count"]["current"], 0)
+
     def test_previous_period_comparison_separates_snapshots_and_events(self):
         result = reports_compare(days=7, db=self.db)
         self.assertEqual(result["metrics"]["snapshot_count"]["current"], 1)
