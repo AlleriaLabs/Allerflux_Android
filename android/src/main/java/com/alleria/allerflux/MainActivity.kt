@@ -54,7 +54,66 @@ private val Border = Color(0xFF292D3B)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val crashReport = runCatching {
+            java.io.File(filesDir, "last_crash.txt").takeIf { it.exists() }?.readText()
+        }.getOrNull()
+        if (!crashReport.isNullOrBlank()) {
+            showCrashReport(crashReport)
+            return
+        }
         setContent { AllerfluxApp(this) }
+    }
+
+    // Use platform Views here so the diagnostic screen does not depend on Compose.
+    private fun showCrashReport(report: String) {
+        val root = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 48, 32, 32)
+            setBackgroundColor(android.graphics.Color.rgb(9, 10, 16))
+        }
+        root.addView(android.widget.TextView(this).apply {
+            text = "Allerflux detected a startup crash"
+            textSize = 22f
+            setTextColor(android.graphics.Color.WHITE)
+            setPadding(0, 0, 0, 20)
+        })
+        root.addView(android.widget.TextView(this).apply {
+            text = "The error below was saved automatically. Copy or share it with ChatGPT so the exact cause can be fixed."
+            textSize = 14f
+            setTextColor(android.graphics.Color.LTGRAY)
+            setPadding(0, 0, 0, 20)
+        })
+        root.addView(android.widget.ScrollView(this).apply {
+            addView(android.widget.TextView(this@MainActivity).apply {
+                text = report
+                textSize = 12f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(android.graphics.Color.rgb(190, 220, 230))
+                setTextIsSelectable(true)
+            })
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        })
+        root.addView(android.widget.Button(this).apply {
+            text = "Share crash report"
+            setOnClickListener {
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Allerflux startup crash")
+                    putExtra(android.content.Intent.EXTRA_TEXT, report)
+                }
+                startActivity(android.content.Intent.createChooser(intent, "Share crash report"))
+            }
+        })
+        root.addView(android.widget.Button(this).apply {
+            text = "Clear report and retry"
+            setOnClickListener {
+                runCatching { java.io.File(filesDir, "last_crash.txt").delete() }
+                recreate()
+            }
+        })
+        setContentView(root)
     }
 }
 
