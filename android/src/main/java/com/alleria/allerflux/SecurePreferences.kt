@@ -56,15 +56,18 @@ class SecurePreferences(context: Context) {
         return String(cipher.doFinal(encrypted), Charsets.UTF_8)
     }
 
-    fun load(): Pair<String, String> {
+    fun load(): Pair<String, String> = runCatching {
         val storedUrl = secure.getString(KEY_SERVER_URL, null)
         val storedKey = secure.getString(KEY_API_KEY, null)
         if (storedUrl != null || storedKey != null) {
-            return runCatching {
-                val values = decrypt(storedUrl) to decrypt(storedKey)
+            val values = runCatching { decrypt(storedUrl) to decrypt(storedKey) }
+            if (values.isSuccess) {
                 legacy.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).apply()
-                values
-            }.getOrDefault("" to "")
+                return@runCatching values.getOrThrow()
+            }
+            // A stale/corrupt Keystore entry should not crash launch or trap the
+            // app in a permanent failed-decryption loop. Clear only these settings.
+            secure.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).commit()
         }
 
         val oldUrl = legacy.getString(KEY_SERVER_URL, "") ?: ""
@@ -72,12 +75,14 @@ class SecurePreferences(context: Context) {
         if (oldUrl.isNotBlank() || oldKey.isNotBlank()) {
             if (save(oldUrl, oldKey)) {
                 legacy.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).apply()
-                return oldUrl to oldKey
+                oldUrl to oldKey
+            } else {
+                "" to ""
             }
-            return "" to ""
+        } else {
+            "" to ""
         }
-        return "" to ""
-    }
+    }.getOrDefault("" to "")
 
     fun save(serverUrl: String, apiKey: String): Boolean = runCatching {
         val editor = secure.edit()
