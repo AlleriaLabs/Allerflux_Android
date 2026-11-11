@@ -8,6 +8,8 @@ Jellyfin's `/Sessions` endpoint describes sessions that exist now. Allerflux rec
 
 Snapshots do not reliably establish exact playback starts, stop times, watch duration, completion, or unique plays. A single long playback may contribute many snapshots. The app labels these as observations. Top-title and top-user rankings are likewise sample-based: longer sessions and shorter polling intervals can produce more samples.
 
+`GET /api/v1/reports/compare?days=30` compares the selected period with the immediately preceding period of equal length. Snapshot metrics and webhook event metrics are returned separately.
+
 ## Event-based playback analytics
 
 For higher-fidelity playback records, configure the official Jellyfin Webhook plugin to send a JSON body to `POST /api/v1/webhooks/jellyfin`. Set `ALLERFLUX_WEBHOOK_KEY` to a separate long random secret and send it in the `X-Allerflux-Webhook-Key` header. The companion accepts `PlaybackStart`, `PlaybackProgress`, and `PlaybackStop`, validates the timestamp/user/item fields, stores immutable event records, and deduplicates identical deliveries.
@@ -27,7 +29,7 @@ All endpoints except `/health` require the `X-Allerflux-Key` header.
 - `GET /api/v1/sessions` — current Jellyfin sessions and playback state.
 - `GET /api/v1/library` — Jellyfin movie, series, episode, song, album, artist, and box-set counts.
 - `GET /api/v1/history?limit=200` — recent stored snapshots.
-- `GET /api/v1/reports/summary?days=30` — observed snapshot, user, title, playing, and paused counts with a continuous daily series (zero-filled dates).
+- `GET /api/v1/reports/summary?days=30&group_by=day|week|month` — observed snapshot, user, title, playing, and paused counts with a continuous daily series (zero-filled dates).
 - `GET /api/v1/reports/top-titles?days=30&limit=10` — titles ranked by observed snapshot count, with observed users and playing/paused samples.
 - `GET /api/v1/reports/top-users?days=30&limit=20` — users ranked by observed snapshot count, with distinct observed titles and playing/paused samples.
 - `GET /api/v1/items/{item_id}/analytics` — observed snapshots and observed users for an item.
