@@ -670,12 +670,12 @@ fun AllerfluxApp(context: Context) {
                                     fontWeight = FontWeight.Medium, letterSpacing = 2.8.sp)
                                 Text("ALLERIA LABS", color = Muted, fontSize = 11.sp, letterSpacing = 2.8.sp)
                             }
-                            Surface(color = Color(0xFF1A2230), shape = RoundedCornerShape(22.dp),
+                            Surface(color = Color(0xFF1A2230), shape = RoundedCornerShape(16.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Border),
-                                modifier = Modifier.size(58.dp).clickable { selected = "Settings" }) {
+                                modifier = Modifier.size(46.dp).clickable { selected = "Settings" }) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(Icons.Rounded.Settings, contentDescription = "Settings",
-                                        tint = Muted, modifier = Modifier.size(28.dp))
+                                        tint = Muted, modifier = Modifier.size(21.dp))
                                 }
                             }
                         }
@@ -753,8 +753,8 @@ fun AllerfluxApp(context: Context) {
                     }
                     items(servers) { server ->
                         val online = server.id in onlineServerIds
-                        Surface(color = Color(0xFF141720), shape = RoundedCornerShape(24.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.2.dp, Border),
+                        Surface(color = Color(0xFF141720), shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth().clickable {
                                 selectedServerId = server.id
                                 serverNameDraft = server.name
@@ -766,27 +766,27 @@ fun AllerfluxApp(context: Context) {
                                 error = ""
                                 refresh()
                             }) {
-                            Row(Modifier.padding(horizontal = 19.dp, vertical = 21.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = Color(0xFF1C2433), shape = RoundedCornerShape(19.dp), modifier = Modifier.size(66.dp)) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Surface(color = Color(0xFF1C2433), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(48.dp)) {
                                     Box(contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(29.dp))
+                                        Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(22.dp))
                                     }
                                 }
-                                Spacer(Modifier.width(14.dp))
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text(server.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.width(11.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(server.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                                     Text(android.net.Uri.parse(server.url).host ?: server.url,
-                                        color = Muted, fontSize = 12.sp, maxLines = 1)
-                                    Text("HOME", color = BrandRed, fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
+                                        color = Muted, fontSize = 10.sp, maxLines = 1)
+                                    Text("HOME", color = BrandRed, fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
                                 }
-                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                        Box(Modifier.size(9.dp).background(if (online) StatusGreen else Color(0xFFFF6B78), CircleShape))
+                                        Box(Modifier.size(7.dp).background(if (online) StatusGreen else Color(0xFFFF6B78), CircleShape))
                                         Text(if (online) "Online" else "Offline",
-                                            color = if (online) StatusGreen else Color(0xFFFF6B78), fontSize = 13.sp)
+                                            color = if (online) StatusGreen else Color(0xFFFF6B78), fontSize = 11.sp)
                                     }
                                     Icon(Icons.Rounded.ExpandMore, contentDescription = "Open server",
-                                        tint = Muted, modifier = Modifier.size(25.dp))
+                                        tint = Muted, modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -1525,11 +1525,11 @@ private fun InfoCard(title: String, heading: String, detail: String, extra: Stri
 }
 @Composable
 private fun ServerStatCard(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Color.White) {
-    Surface(modifier = modifier.height(82.dp), color = Color(0xFF141720), shape = RoundedCornerShape(20.dp),
+    Surface(modifier = modifier.height(64.dp), color = Color(0xFF141720), shape = RoundedCornerShape(14.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
-        Column(Modifier.padding(horizontal = 11.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(value, color = valueColor, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, color = Muted, fontSize = 10.sp, maxLines = 1)
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(value, color = valueColor, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = Muted, fontSize = 9.sp, maxLines = 1)
         }
     }
 }
