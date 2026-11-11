@@ -177,14 +177,13 @@ fun AllerfluxApp(context: Context) {
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
     var historyError by remember { mutableStateOf("") }
-    var showSettings by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf("Overview") }
     val scope = rememberCoroutineScope()
 
     fun refresh() {
         if (serverUrl.isBlank() || apiKey.isBlank()) {
             error = "Enter the companion URL and API key in Settings."
-            showSettings = true
+            selected = "Settings"
             return
         }
         scope.launch {
@@ -240,14 +239,18 @@ fun AllerfluxApp(context: Context) {
                             Text("Allerflux", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
                             Text("Your Media Server Intelligence", color = Muted, fontSize = 13.sp)
                         }
-                        IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.Settings, "Settings", tint = Color.White) }
+                        IconButton(onClick = { selected = "Settings" }) { Icon(Icons.Rounded.Settings, "Settings", tint = Color.White) }
                     }
                 }
                 item { SectionHeading(when (selected) {
                     "Overview" -> "Server overview"
                     "Activity" -> "Live activity"
                     "Library" -> "Media library"
-                    else -> "Usage reports"
+                    "Reports" -> "Viewing analytics"
+                    "Top Viewers" -> "Most active viewers"
+                    "Top Videos" -> "Most watched titles"
+                    "Settings" -> "Connection & preferences"
+                    else -> "About Allerflux"
                 }) }
 
                 if (selected == "Overview") {
@@ -353,13 +356,21 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
-                    item { SectionHeading("Most watched videos and episodes") }
+                    item { Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionHeading("Most watched videos")
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { selected = "Top Videos" }) { Text("See all", color = Accent) }
+                    } }
                     item { Text("Ranked by observed playback samples, with distinct viewers shown for each title.", color = Muted, fontSize = 12.sp) }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO TITLE DATA", "No ranked titles yet", "Playback observations will populate this list.", "") }
                     items(reportDetails.topTitles) { title ->
                         InfoCard(title.type, title.name, "${title.users} distinct viewers", "${title.samples} observed playback samples")
                     }
-                    item { SectionHeading("User activity") }
+                    item { Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionHeading("Top viewers")
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { selected = "Top Viewers" }) { Text("See all", color = Accent) }
+                    } }
                     if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO USER DATA", "No ranked users yet", "Playback observations will populate this list.", "") }
                     items(reportDetails.topUsers) { user ->
                         InfoCard("JELLYFIN USER", user.name, "${user.samples} observed samples", "${user.titles} observed titles")
@@ -375,6 +386,63 @@ fun AllerfluxApp(context: Context) {
                         "History will appear after the companion has collected session observations.", "") }
                 }
 
+                if (selected == "Top Viewers") {
+                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback activity over the last 30 days.", "") }
+                    if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO DATA", "No ranked users yet", "User activity will appear as snapshots are collected.", "") }
+                    items(reportDetails.topUsers) { user ->
+                        InfoCard("RANK " + (reportDetails.topUsers.indexOf(user) + 1), user.name,
+                            user.samples.toString() + " observed samples", user.titles.toString() + " distinct titles")
+                    }
+                    item { InfoCard("ACCURACY", "Snapshot-based estimates", "These are observed sessions, not exact play counts or watch time.", "") }
+                    item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
+                }
+                if (selected == "Top Videos") {
+                    item { InfoCard("TITLE LEADERBOARD", "Most watched videos and episodes", "Ranked by observed playback activity over the last 30 days.", "") }
+                    if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO DATA", "No ranked titles yet", "Title rankings will appear as snapshots are collected.", "") }
+                    items(reportDetails.topTitles) { title ->
+                        InfoCard("RANK " + (reportDetails.topTitles.indexOf(title) + 1) + " · " + title.type,
+                            title.name, title.users.toString() + " distinct viewers", title.samples.toString() + " observed samples")
+                    }
+                    item { InfoCard("ACCURACY", "Snapshot-based estimates", "These are not exact play starts, completions, or total watch duration.", "") }
+                    item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
+                }
+                if (selected == "Settings") {
+                    var urlDraft by remember(serverUrl) { mutableStateOf(serverUrl) }
+                    var keyDraft by remember(apiKey) { mutableStateOf(apiKey) }
+                    item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
+                        if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
+                    item {
+                        Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Companion configuration", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
+                                    placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") },
+                                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                                Text("For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 12.sp)
+                                Button(onClick = {
+                                    serverUrl = urlDraft.trim().trimEnd('/')
+                                    apiKey = keyDraft.trim()
+                                    prefs.edit().putString("server_url", serverUrl).putString("api_key", apiKey).apply()
+                                    selected = "Overview"
+                                    refresh()
+                                }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
+                                    Text("Save & connect")
+                                }
+                                OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
+                            }
+                        }
+                    }
+                    item { InfoCard("APP PREFERENCES", "Automatic refresh · 60 seconds", "Dark theme with navy surfaces and cyan accents.", "") }
+                    item { TextButton(onClick = { selected = "About" }) { Text("About Allerflux  →", color = Accent) } }
+                }
+                if (selected == "About") {
+                    item { InfoCard("ALLERFLUX", "Media Server Intelligence", "Version 0.5.0 · Built by Alleria Labs", "Monitor. Analyze. Enjoy.") }
+                    item { InfoCard("PRODUCT", "Alleria Labs", "Self-hosted Jellyfin monitoring, live activity, library inventory, and viewing analytics.", "") }
+                    item { InfoCard("DATA ACCURACY", "Transparent analytics", "Historical reports use periodic observations. Exact playback events and watch duration are not yet available.", "") }
+                    item { OutlinedButton(onClick = { selected = "Settings" }) { Text("Back to Settings") } }
+                }
+                if (selected in listOf("Overview", "Activity", "Library", "Reports")) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { refresh() }, enabled = !loading,
@@ -384,39 +452,18 @@ fun AllerfluxApp(context: Context) {
                             Spacer(Modifier.width(7.dp))
                             Text(if (loading) "Refreshing" else "Refresh data")
                         }
-                        OutlinedButton(onClick = { showSettings = true }) { Text("Settings") }
+                        OutlinedButton(onClick = { selected = "Settings" }) { Text("Settings") }
                     }
                 }
                 item { Text("Allerflux  •  v0.4.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
             }
         }
-        if (showSettings) {
-            var urlDraft by remember(showSettings) { mutableStateOf(serverUrl) }
-            var keyDraft by remember(showSettings) { mutableStateOf(apiKey) }
-            AlertDialog(onDismissRequest = { showSettings = false }, containerColor = Panel,
-                title = { Text("Companion settings", color = Color.White) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
-                            placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true)
-                        OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") }, singleLine = true)
-                        Text("Use your server's reachable companion address. For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 12.sp)
-                    }
-                },
-                confirmButton = { TextButton(onClick = {
-                    serverUrl = urlDraft.trim().trimEnd('/')
-                    apiKey = keyDraft.trim()
-                    prefs.edit().putString("server_url", serverUrl).putString("api_key", apiKey).apply()
-                    showSettings = false
-                    refresh()
-                }) { Text("Save & connect", color = Accent) } },
-                dismissButton = { TextButton(onClick = { showSettings = false }) { Text("Cancel", color = Muted) } })
-        }
+
     }
 }
 
 @Composable
-private fun InfoCard(title: String, heading: String, detail: String, extra: String) {
+private fun InfoCardtitle: String, heading: String, detail: String, extra: String) {
     Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title.uppercase(), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
