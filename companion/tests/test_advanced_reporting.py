@@ -1,5 +1,6 @@
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -52,6 +53,33 @@ class AdvancedReportingTests(unittest.TestCase):
         self.assertEqual(result["group_by"], "month")
         self.assertEqual(sum(row["snapshots"] for row in result["daily"]), 2)
         self.assertTrue(all(len(row["date"]) == 10 for row in result["daily"]))
+
+    def test_custom_date_range_uses_requested_timezone(self):
+        local_today = datetime.now(ZoneInfo("Asia/Manila")).date()
+        local_start = local_today - timedelta(days=3)
+        result = reports_summary(
+            days=30, group_by="day", from_date=local_start, to_date=local_today,
+            timezone_name="Asia/Manila", db=self.db,
+        )
+        self.assertEqual(result["from_date"], local_start.isoformat())
+        self.assertEqual(result["to_date"], local_today.isoformat())
+        self.assertEqual(result["timezone"], "Asia/Manila")
+        self.assertEqual(result["snapshot_count"], 1)
+        self.assertEqual(sum(row["snapshots"] for row in result["daily"]), 1)
+
+    def test_custom_date_range_validation(self):
+        from fastapi import HTTPException
+
+        with self.assertRaises(HTTPException) as incomplete:
+            reports_summary(days=30, from_date=date(2026, 11, 1), to_date=None, db=self.db)
+        self.assertEqual(incomplete.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as reversed_range:
+            reports_summary(days=30, from_date=date(2026, 11, 12),
+                to_date=date(2026, 11, 11), db=self.db)
+        self.assertEqual(reversed_range.exception.status_code, 422)
+        with self.assertRaises(HTTPException) as bad_timezone:
+            reports_summary(days=30, timezone_name="Not/A_Real_Zone", db=self.db)
+        self.assertEqual(bad_timezone.exception.status_code, 422)
 
     def test_previous_period_comparison_separates_snapshots_and_events(self):
         result = reports_compare(days=7, db=self.db)
