@@ -1116,7 +1116,41 @@ fun AllerfluxApp(context: Context) {
                                 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
                                     Text(if (selectedServerId.isBlank()) "Test & add server" else "Test & save server")
                                 }
-                                OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
+                                OutlinedButton(onClick = {
+                                    val testUrl = urlDraft.trim().trimEnd('/')
+                                    val testKey = keyDraft.trim()
+                                    scope.launch {
+                                        val result = runCatching { loadOverview(testUrl, testKey) }
+                                        error = if (result.isSuccess) "Connection successful." else
+                                            "Connection test failed: ${result.exceptionOrNull()?.message}"
+                                    }
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
+                                if (selectedServerId.isNotBlank()) {
+                                    OutlinedButton(onClick = {
+                                        val updated = servers.filterNot { it.id == selectedServerId }
+                                        scope.launch {
+                                            val saved = withContext(Dispatchers.IO) {
+                                                SecurePreferences(context.applicationContext).saveServers(updated)
+                                            }
+                                            if (saved) {
+                                                servers = updated
+                                                val next = updated.firstOrNull()
+                                                selectedServerId = next?.id.orEmpty()
+                                                serverNameDraft = next?.name.orEmpty()
+                                                serverUrl = next?.url.orEmpty()
+                                                apiKey = next?.apiKey.orEmpty()
+                                                urlDraft = serverUrl
+                                                keyDraft = apiKey
+                                                selected = "Overview"
+                                                error = ""
+                                            } else error = "Unable to remove server."
+                                        }
+                                    }, modifier = Modifier.fillMaxWidth()) {
+                                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Remove server")
+                                    }
+                                }
                             }
                         }
                     }
