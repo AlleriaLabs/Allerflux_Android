@@ -67,7 +67,7 @@ private fun formatDuration(seconds: Long): String {
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
-private data class DailyStat(val date: String, val snapshots: Int)
+private data class DailyStat(val date: String, val snapshots: Int, val users: Int, val titles: Int)
 private data class TopTitle(val name: String, val type: String, val samples: Int, val users: Int)
 private data class TopUser(val name: String, val samples: Int, val titles: Int)
 private data class ReportDetails(
@@ -133,7 +133,7 @@ private suspend fun loadReportDetails(base: String, key: String): ReportDetails 
     val dailyJson = summary.optJSONArray("daily") ?: JSONArray()
     val daily = (0 until dailyJson.length()).map {
         val row = dailyJson.getJSONObject(it)
-        DailyStat(row.optString("date"), row.optInt("snapshots"))
+        DailyStat(row.optString("date"), row.optInt("snapshots"), row.optInt("unique_users"), row.optInt("unique_titles"))
     }
     val titlesJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-titles?days=30&limit=8"))
         .optJSONArray("items") ?: JSONArray()
@@ -323,18 +323,26 @@ fun AllerfluxApp(context: Context) {
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Playback samples · last 30 days", color = Muted, fontSize = 12.sp)
+                                Text("Daily viewers and distinct videos · last 30 days", color = Muted, fontSize = 12.sp)
+                                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    Text("● Viewers", color = Accent, fontSize = 11.sp)
+                                    Text("● Videos", color = Color(0xFFFFB86B), fontSize = 11.sp)
+                                }
                                 if (reportDetails.daily.isEmpty()) {
                                     Text("No observations recorded in this period.", color = Muted, fontSize = 13.sp)
                                 } else {
                                     Canvas(Modifier.fillMaxWidth().height(120.dp)) {
-                                        val maxValue = (reportDetails.daily.maxOfOrNull { it.snapshots } ?: 0).coerceAtLeast(1)
+                                        val maxValue = (reportDetails.daily.maxOfOrNull { maxOf(it.users, it.titles) } ?: 0).coerceAtLeast(1)
                                         val slot = size.width / reportDetails.daily.size
-                                        val barWidth = (slot * 0.62f).coerceAtLeast(2f)
+                                        val barWidth = (slot * 0.30f).coerceAtLeast(1.5f)
                                         reportDetails.daily.forEachIndexed { index, day ->
-                                            val barHeight = size.height * day.snapshots.toFloat() / maxValue
-                                            drawRect(Accent, Offset(index * slot + (slot - barWidth) / 2f, size.height - barHeight),
-                                                Size(barWidth, barHeight))
+                                            val center = index * slot + slot / 2f
+                                            val usersHeight = size.height * day.users.toFloat() / maxValue
+                                            val titlesHeight = size.height * day.titles.toFloat() / maxValue
+                                            drawRect(Accent, Offset(center - barWidth - 1f, size.height - usersHeight),
+                                                Size(barWidth, usersHeight))
+                                            drawRect(Color(0xFFFFB86B), Offset(center + 1f, size.height - titlesHeight),
+                                                Size(barWidth, titlesHeight))
                                         }
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -345,10 +353,11 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
-                    item { SectionHeading("Most observed titles") }
+                    item { SectionHeading("Most watched videos and episodes") }
+                    item { Text("Ranked by observed playback samples, with distinct viewers shown for each title.", color = Muted, fontSize = 12.sp) }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO TITLE DATA", "No ranked titles yet", "Playback observations will populate this list.", "") }
                     items(reportDetails.topTitles) { title ->
-                        InfoCard(title.type, title.name, "${title.samples} observed samples", "${title.users} observed users")
+                        InfoCard(title.type, title.name, "${title.users} distinct viewers", "${title.samples} observed playback samples")
                     }
                     item { SectionHeading("User activity") }
                     if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO USER DATA", "No ranked users yet", "Playback observations will populate this list.", "") }
