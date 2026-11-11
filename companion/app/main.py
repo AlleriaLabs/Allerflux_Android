@@ -13,7 +13,8 @@ from sqlalchemy import select, delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 from .config import settings
-from .database import Base, engine, SessionLocal, get_db
+from .database import engine, SessionLocal, get_db
+from .migrations import run_migrations
 from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent
 from .security import require_api_key, require_webhook_key
 from .events import normalize_playback_event
@@ -197,7 +198,7 @@ async def poll_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global poll_task
-    Base.metadata.create_all(bind=engine)
+    run_migrations(engine)
     poll_task = asyncio.create_task(poll_loop())
     yield
     poll_task.cancel()
