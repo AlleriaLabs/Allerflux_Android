@@ -77,6 +77,8 @@ private data class HistoryRow(val user: String, val title: String, val type: Str
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
 private data class EventSummary(val starts: Int = 0, val stops: Int = 0, val completed: Int = 0, val users: Int = 0, val titles: Int = 0)
+private data class AlertSummary(val active: Int = 0, val total: Int = 0, val idleThreshold: Int = 1800, val cooldown: Int = 60, val outboundEnabled: Boolean = false)
+private data class AlertRow(val kind: String, val title: String, val message: String, val status: String, val time: String)
 private data class DailyStat(val date: String, val snapshots: Int, val users: Int, val titles: Int)
 private data class TopTitle(val name: String, val type: String, val samples: Int, val users: Int)
 private data class TopUser(val name: String, val samples: Int, val titles: Int)
@@ -166,6 +168,23 @@ private suspend fun loadEventSummary(base: String, key: String, days: Int): Even
     val j = JSONObject(apiGet(base, key, "/api/v1/events/summary?days=$days"))
     return EventSummary(j.optInt("playback_starts"), j.optInt("playback_stops"),
         j.optInt("completed_stops"), j.optInt("distinct_users"), j.optInt("distinct_titles"))
+}
+
+
+private suspend fun loadAlertSummary(base: String, key: String): AlertSummary {
+    val j = JSONObject(apiGet(base, key, "/api/v1/alerts/summary"))
+    return AlertSummary(j.optInt("active_alerts"), j.optInt("total_events"),
+        j.optInt("idle_threshold_seconds", 1800), j.optInt("cooldown_minutes", 60),
+        j.optBoolean("outbound_notifications_enabled"))
+}
+
+private suspend fun loadAlertHistory(base: String, key: String): List<AlertRow> {
+    val a = JSONArray(apiGet(base, key, "/api/v1/alerts/history?limit=100"))
+    return (0 until a.length()).map {
+        val j = a.getJSONObject(it)
+        AlertRow(j.optString("kind"), j.optString("title"), j.optString("message"),
+            j.optString("status"), j.optString("created_at"))
+    }
 }
 
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
@@ -293,6 +312,9 @@ fun AllerfluxApp(context: Context) {
     var reportDetails by remember { mutableStateOf(ReportDetails()) }
     var eventSummary by remember { mutableStateOf(EventSummary()) }
     var eventError by remember { mutableStateOf("") }
+    var alertSummary by remember { mutableStateOf(AlertSummary()) }
+    var alertHistory by remember { mutableStateOf<List<AlertRow>>(emptyList()) }
+    var alertError by remember { mutableStateOf("") }
     var reportDays by remember { mutableIntStateOf(30) }
     var reportError by remember { mutableStateOf("") }
     var exportMessage by remember { mutableStateOf("") }
@@ -356,6 +378,8 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
             try { eventSummary = loadEventSummary(serverUrl, apiKey, reportDays); eventError = "" }
             catch (e: Exception) { eventError = e.message ?: "Playback events are unavailable" }
+            try { alertSummary = loadAlertSummary(serverUrl, apiKey); alertHistory = loadAlertHistory(serverUrl, apiKey); alertError = "" }
+            catch (e: Exception) { alertError = e.message ?: "Alert history is unavailable" }
             loading = false
         }
     }
@@ -458,6 +482,7 @@ fun AllerfluxApp(context: Context) {
                     "Library" -> "Media library"
                     "Reports" -> "Viewing analytics"
                     "More" -> "Workspace & tools"
+                    "Alerts" -> "Server alerts & recovery history"
                     "Top Viewers" -> "Most active viewers"
                     "Top Videos" -> "Most watched titles"
                     "Settings" -> "Connection & preferences"
@@ -688,12 +713,40 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
+                    item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
                     item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
                     item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
                     item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
                     item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
                     item { InfoCard("ALLERIA LABS", "One view of your media server",
                         "Live server status, session intelligence, library inventory and observed viewing trends.", "Built for self-hosted Jellyfin") }
+                }
+
+                if (selected == "Alerts") {
+                    if (alertError.isNotBlank()) {
+                        item { InfoCard("ALERTS UNAVAILABLE", "Could not load alert history",
+                            "Update the companion to a build with alert support.", alertError) }
+                    } else {
+                        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricCard("Active alerts", alertSummary.active.toString(), "Needs attention", Modifier.weight(1f))
+                            MetricCard("Alert events", alertSummary.total.toString(), "Trigger and recovery history", Modifier.weight(1f))
+                        } }
+                        item { InfoCard("IDLE SESSION RULE", "Threshold: " + formatDuration(alertSummary.idleThreshold.toLong()),
+                            "Alerts are raised only when Jellyfin provides a usable last-activity timestamp. Cooldown: ${alertSummary.cooldown} minutes.",
+                            if (alertSummary.outboundEnabled) "Outbound webhook notifications enabled" else "In-app history only · outbound webhook not configured") }
+                        item { Text("Recent alert history", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
+                        if (alertHistory.isEmpty()) {
+                            item { InfoCard("ALL CLEAR", "No alert history yet",
+                                "Idle-session and server-availability events will appear here when detected.", "") }
+                        } else {
+                            items(alertHistory) { alert ->
+                                InfoCard(alert.kind.replace("_", " ").uppercase() + " · " + alert.status.uppercase(),
+                                    alert.title, alert.message, alert.time.replace("T", " ").take(19))
+                            }
+                        }
+                        item { Text("Allerflux alerts are informational and read-only. The app never disconnects or changes Jellyfin sessions.",
+                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                    }
                 }
                 if (selected == "Settings") {
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
@@ -729,7 +782,7 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("DATA ACCURACY", "Transparent analytics", "Historical reports use periodic observations. Exact playback events and watch duration are not yet available.", "") }
                     item { OutlinedButton(onClick = { selected = "Settings" }) { Text("Back to Settings") } }
                 }
-                if (selected in listOf("Overview", "Activity", "Library", "Reports")) {
+                if (selected in listOf("Overview", "Activity", "Library", "Reports", "Alerts")) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = { refresh() }, enabled = !loading,
