@@ -532,7 +532,7 @@ fun AllerfluxApp(context: Context) {
         // then keep every registered server status fresh while the Servers page is open.
         while (true) {
             val online = mutableSetOf<String>()
-            savedServers.forEach { server ->
+            servers.forEach { server ->
                 var connected = false
                 repeat(2) { attempt ->
                     if (!connected) {
