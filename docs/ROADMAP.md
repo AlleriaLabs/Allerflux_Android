@@ -35,3 +35,27 @@ This roadmap covers the Jellyfin analytics product only. It does not include unr
 ## Current work
 
 The primary destinations are Overview, Activity, Library and Reports; the More workspace provides entry points for Top Viewers, Top Videos, Alerts, Settings and About. PR #13 adds CSV/PDF exports; PR #14 adds idle-session and server-availability alerts.
+
+
+## Multi-server expansion (new)
+
+Target architecture: one Allerflux companion installation manages multiple Jellyfin server connections. The Android app connects to that companion once, then selects a server context. Each configured Jellyfin server receives a stable internal server ID.
+
+### Required isolation rules
+- Every snapshot, playback event, alert state/event and report query must be scoped by server ID.
+- Never merge users or item IDs across servers; Jellyfin IDs are only unique within their own server.
+- Server credentials must be encrypted at rest using a dedicated server-side encryption key, never returned by API responses, and never logged.
+- Server create/update/delete operations require companion API authentication; deletion must require explicit confirmation and must not erase historical analytics by default.
+- The existing single-server environment configuration must migrate as the default server without losing existing snapshots, events, alerts, or API credentials.
+- Poll each server independently with per-server health, last-success and error status. One unavailable Jellyfin server must not stop polling other servers.
+- Webhook ingestion must identify its source server using a per-server webhook token or signed source mapping; do not infer the source from user/item IDs.
+
+### Delivery sequence
+1. UI foundation: Allerion-inspired charcoal surfaces, rounded bordered cards, compact statistics, refined typography, animated active navigation; preserve Allerflux cyan `#39D5F2` and purple `#9B72FF`.
+2. Server manager UI: server list, status, active-server switcher and floating Add Server action.
+3. Companion schema and encrypted credential store; additive migration of the existing default server.
+4. Per-server pollers, API response scoping, webhook routing, alerts and reports.
+5. Android server switching, secure profile handling, empty/error states and integration tests.
+6. Migration drill and multi-server end-to-end verification before release.
+
+The initial UI theme commit does not claim multi-server backend support. Multi-server is complete only after the data-isolation and migration acceptance criteria above pass.
