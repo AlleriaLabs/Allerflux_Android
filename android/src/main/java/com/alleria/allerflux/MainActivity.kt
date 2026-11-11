@@ -38,6 +38,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.io.OutputStream
 
 private val Ink = Color(0xFF080D16)
@@ -160,7 +161,7 @@ private suspend fun loadLibrary(base: String, key: String): LibraryStats {
 private fun reportQuery(days: Int, fromDate: String, toDate: String, timezone: String): String {
     val custom = fromDate.isNotBlank() && toDate.isNotBlank()
     val period = if (custom) "from_date=$fromDate&to_date=$toDate" else "days=$days"
-    return "$period&timezone=$timezone"
+    return "$period&timezone=${URLEncoder.encode(timezone, "UTF-8")}"
 }
 
 private suspend fun loadReportStats(base: String, key: String, query: String): ReportStats {
