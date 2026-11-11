@@ -859,7 +859,7 @@ fun AllerfluxApp(context: Context) {
                     item { TextButton(onClick = { selected = "About" }) { Text("About Allerflux  →", color = Accent) } }
                 }
                 if (selected == "About") {
-                    item { InfoCard("ALLERFLUX", "Media Server Intelligence", "Version 0.5.0 · Built by Alleria Labs", "Monitor. Analyze. Enjoy.") }
+                    item { InfoCard("ALLERFLUX", "Media Server Intelligence", "Version 0.6.0 · Built by Alleria Labs", "Monitor. Analyze. Enjoy.") }
                     item { InfoCard("PRODUCT", "Alleria Labs", "Self-hosted Jellyfin monitoring, live activity, library inventory, and viewing analytics.", "") }
                     item { InfoCard("DATA ACCURACY", "Transparent analytics", "Historical reports use periodic observations. Exact playback events and watch duration are not yet available.", "") }
                     item { OutlinedButton(onClick = { selected = "Settings" }) { Text("Back to Settings") } }
@@ -877,7 +877,7 @@ fun AllerfluxApp(context: Context) {
                         OutlinedButton(onClick = { selected = "Settings" }) { Text("Settings") }
                     }
                 }
-                item { Text("Allerflux  •  v0.5.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.6.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
                 }
             }
         }
