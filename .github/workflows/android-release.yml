@@ -1,0 +1,66 @@
+name: Android signed release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Validate and decode Android signing key
+        env:
+          ALLERFLUX_KEYSTORE_BASE64: ${{ secrets.ALLERFLUX_KEYSTORE_BASE64 }}
+          ALLERFLUX_KEYSTORE_PASSWORD: ${{ secrets.ALLERFLUX_KEYSTORE_PASSWORD }}
+          ALLERFLUX_KEY_ALIAS: ${{ secrets.ALLERFLUX_KEY_ALIAS }}
+          ALLERFLUX_KEY_PASSWORD: ${{ secrets.ALLERFLUX_KEY_PASSWORD }}
+        run: |
+          for name in ALLERFLUX_KEYSTORE_BASE64 ALLERFLUX_KEYSTORE_PASSWORD ALLERFLUX_KEY_ALIAS ALLERFLUX_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required repository secret: $name"
+              exit 1
+            fi
+          done
+          echo "$ALLERFLUX_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/allerflux-release.jks"
+          echo "ALLERFLUX_KEYSTORE_PATH=$RUNNER_TEMP/allerflux-release.jks" >> "$GITHUB_ENV"
+
+      - name: Assemble signed release APK
+        env:
+          ALLERFLUX_KEYSTORE_PASSWORD: ${{ secrets.ALLERFLUX_KEYSTORE_PASSWORD }}
+          ALLERFLUX_KEY_ALIAS: ${{ secrets.ALLERFLUX_KEY_ALIAS }}
+          ALLERFLUX_KEY_PASSWORD: ${{ secrets.ALLERFLUX_KEY_PASSWORD }}
+        run: gradle :android:assembleRelease
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: allerflux-release-apk
+          path: android/build/outputs/apk/release/android-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: android/build/outputs/apk/release/android-release.apk
