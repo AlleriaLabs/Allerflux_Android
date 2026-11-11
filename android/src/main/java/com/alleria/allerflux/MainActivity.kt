@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,10 +32,12 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-private val Ink = Color(0xFF0B1018)
-private val Panel = Color(0xFF151E2B)
-private val Accent = Color(0xFF55D6C2)
-private val Muted = Color(0xFF8B9AAF)
+private val Ink = Color(0xFF080D16)
+private val Panel = Color(0xFF111B29)
+private val PanelElevated = Color(0xFF172436)
+private val Accent = Color(0xFF70E3CF)
+private val Muted = Color(0xFF91A3B8)
+private val Border = Color(0xFF26364A)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -218,13 +221,14 @@ fun AllerfluxApp(context: Context) {
     MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = Accent, onBackground = Color.White, onSurface = Color.White)) {
         Scaffold(containerColor = Ink, bottomBar = {
             NavigationBar(containerColor = Panel) {
-                listOf("Overview", "Activity", "Library", "Reports").forEach { tab ->
+                listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
                     NavigationBarItem(selected = selected == tab, onClick = { selected = tab },
                         icon = { Icon(when (tab) {
                             "Overview" -> Icons.Rounded.Dashboard
                             "Activity" -> Icons.Rounded.PlayCircle
                             "Library" -> Icons.Rounded.VideoLibrary
-                            else -> Icons.Rounded.QueryStats
+                            "Reports" -> Icons.Rounded.QueryStats
+                            else -> Icons.Rounded.MoreHoriz
                         }, contentDescription = tab) },
                         label = { Text(tab) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = Accent, selectedTextColor = Accent,
@@ -249,6 +253,7 @@ fun AllerfluxApp(context: Context) {
                     "Activity" -> "Live activity"
                     "Library" -> "Media library"
                     "Reports" -> "Viewing analytics"
+                    "More" -> "Workspace & tools"
                     "Top Viewers" -> "Most active viewers"
                     "Top Videos" -> "Most watched titles"
                     "Settings" -> "Connection & preferences"
@@ -408,6 +413,29 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("ACCURACY", "Snapshot-based estimates", "These are not exact play starts, completions, or total watch duration.", "") }
                     item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
                 }
+
+                if (selected == "More") {
+                    item {
+                        Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                            modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("YOUR WORKSPACE", color = Accent, fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                                Text("More from Allerflux", color = Color.White, fontSize = 21.sp,
+                                    fontWeight = FontWeight.Bold)
+                                Text("Explore deeper insights and manage your server connection.",
+                                    color = Muted, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                    item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
+                    item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
+                    item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
+                    item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
+                    item { InfoCard("ALLERIA LABS", "One view of your media server",
+                        "Live server status, session intelligence, library inventory and observed viewing trends.", "Built for self-hosted Jellyfin") }
+                }
                 if (selected == "Settings") {
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
@@ -463,9 +491,30 @@ fun AllerfluxApp(context: Context) {
     }
 }
 
+
+@Composable
+private fun MoreDestination(title: String, subtitle: String, detail: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(46.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, tint = Accent) }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(subtitle, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Muted)
+        }
+    }
+}
+
 @Composable
 private fun InfoCard(title: String, heading: String, detail: String, extra: String) {
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = Panel, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title.uppercase(), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Text(heading, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -480,7 +529,7 @@ private fun SectionHeading(value: String) {
 }
 @Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = Panel, shape = RoundedCornerShape(18.dp)) {
+    Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, color = Muted, fontSize = 12.sp)
             Text(value, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
