@@ -5,6 +5,7 @@ import android.graphics.Paint
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
@@ -508,6 +509,11 @@ fun AllerfluxApp(context: Context) {
         }
     }
 
+    BackHandler(enabled = selected != "Servers") {
+        selected = "Servers"
+        error = ""
+    }
+
     LaunchedEffect(Unit) {
         val savedServers = withContext(Dispatchers.IO) {
             runCatching { SecurePreferences(context.applicationContext).loadServers() }.getOrDefault(emptyList())
@@ -658,6 +664,11 @@ fun AllerfluxApp(context: Context) {
                     } else {
                         Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 9.dp),
                             verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { selected = "Servers"; error = "" },
+                                modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to servers",
+                                    tint = Muted, modifier = Modifier.size(22.dp))
+                            }
                             if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Allerflux orbital logo",
                                 modifier = Modifier.size(34.dp))
                             else Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux", tint = Accent,
