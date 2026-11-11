@@ -12,7 +12,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,7 +22,6 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -579,9 +577,10 @@ fun AllerfluxApp(context: Context) {
                             Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier.size(50.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Image(painter = painterResource(id = R.drawable.allerflux_logo),
-                                        contentDescription = "Allerflux logo",
-                                        modifier = Modifier.fillMaxSize().padding(2.dp))
+                                    Icon(Icons.Rounded.QueryStats,
+                                        contentDescription = "Allerflux",
+                                        tint = Accent,
+                                        modifier = Modifier.size(30.dp))
                                 }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
