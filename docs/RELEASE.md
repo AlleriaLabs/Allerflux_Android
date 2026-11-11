@@ -12,7 +12,14 @@ Example command (run locally on a trusted computer):
 keytool -genkeypair -v -keystore allerflux-release.jks -keyalg RSA -keysize 4096 -validity 10000 -alias allerflux
 ```
 
-Add these repository Actions secrets:
+On Windows PowerShell, create the base64 value without adding line breaks:
+
+```powershell
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("allerflux-release.jks"))
+Set-Clipboard $base64
+```
+
+Paste that clipboard value into `ALLERFLUX_KEYSTORE_BASE64` in GitHub Actions secrets. Add these repository Actions secrets:
 
 - `ALLERFLUX_KEYSTORE_BASE64` — base64-encoded contents of the keystore file.
 - `ALLERFLUX_KEYSTORE_PASSWORD` — keystore password.
