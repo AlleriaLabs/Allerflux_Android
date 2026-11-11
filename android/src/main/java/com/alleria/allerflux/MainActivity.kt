@@ -2,6 +2,7 @@ package com.alleria.allerflux
 
 import android.content.Context
 import android.graphics.Paint
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
@@ -24,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
@@ -40,7 +43,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.OutputStream
 
-// Allerion-inspired premium surfaces with Allerflux's own cyan/purple identity.
+// Premium Allerion-style surfaces with Allerflux's own orbital emblem and cyan/purple identity.
 private val Ink = Color(0xFF090A10)
 private val Panel = Color(0xFF12141E)
 private val PanelElevated = Color(0xFF191C29)
@@ -453,6 +456,11 @@ fun AllerfluxApp(context: Context) {
     var urlDraft by remember { mutableStateOf("") }
     var keyDraft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    // Decode the supplied JPEG with Android's BitmapFactory; Compose painterResource
+    // cannot safely cast this JPEG on some Android 12 devices.
+    val logoBitmap = remember(context) {
+        BitmapFactory.decodeResource(context.resources, R.drawable.allerflux_logo)?.asImageBitmap()
+    }
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             val content = pendingCsv
@@ -548,19 +556,40 @@ fun AllerfluxApp(context: Context) {
     MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = AccentPurple,
         secondary = Accent, onBackground = Color.White, onSurface = Color.White)) {
         Scaffold(containerColor = Ink, bottomBar = {
-            NavigationBar(containerColor = Color(0xFF10121B), tonalElevation = 0.dp) {
-                listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
-                    NavigationBarItem(selected = selected == tab, onClick = { selected = tab },
-                        icon = { Icon(when (tab) {
+            Surface(color = Panel, shadowElevation = 18.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().navigationBarsPadding()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
+                        val active = selected == tab
+                        val tabIcon = when (tab) {
                             "Overview" -> Icons.Rounded.Dashboard
                             "Activity" -> Icons.Rounded.PlayCircle
                             "Library" -> Icons.Rounded.VideoLibrary
                             "Reports" -> Icons.Rounded.QueryStats
                             else -> Icons.Rounded.MoreHoriz
-                        }, contentDescription = tab) },
-                        label = { Text(tab) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Accent, selectedTextColor = Accent,
-                            indicatorColor = Color(0xFF29213D), unselectedTextColor = Muted))
+                        }
+                        Column(Modifier.weight(1f).clickable { selected = tab }
+                            .padding(vertical = 2.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Surface(color = if (active) Color(0xFF243344) else Color.Transparent,
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.size(width = 54.dp, height = 32.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(tabIcon, contentDescription = tab,
+                                        tint = if (active) Accent else Muted,
+                                        modifier = Modifier.size(20.dp))
+                                }
+                            }
+                            Text(tab, color = if (active) Color.White else Muted,
+                                fontSize = 10.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
+                        }
+                    }
                 }
             }
         }) { padding ->
@@ -577,10 +606,16 @@ fun AllerfluxApp(context: Context) {
                             Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier.size(50.dp)) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Rounded.QueryStats,
-                                        contentDescription = "Allerflux",
-                                        tint = Accent,
-                                        modifier = Modifier.size(30.dp))
+                                    if (logoBitmap != null) {
+                                        Image(bitmap = logoBitmap,
+                                            contentDescription = "Allerflux orbital logo",
+                                            modifier = Modifier.fillMaxSize().padding(3.dp))
+                                    } else {
+                                        Icon(Icons.Rounded.QueryStats,
+                                            contentDescription = "Allerflux",
+                                            tint = Accent,
+                                            modifier = Modifier.size(30.dp))
+                                    }
                                 }
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
