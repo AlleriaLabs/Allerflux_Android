@@ -706,7 +706,7 @@ fun AllerfluxApp(context: Context) {
                     }
                     if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load $reportDays-day summary", reportError, "") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricCard("Snapshots", reportStats.snapshots.toString(), "Last $reportDays days", Modifier.weight(1f))
+                        MetricCard("Snapshots", reportStats.snapshots.toString(), reportPeriodLabel, Modifier.weight(1f))
                         MetricCard("Observed users", reportStats.users.toString(), "Distinct account IDs", Modifier.weight(1f))
                     } }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -758,7 +758,7 @@ fun AllerfluxApp(context: Context) {
                                     pendingCsv = buildReportCsv(reportDays, reportGranularity, reportStats, reportDetails, eventSummary,
                                         reportFromDate, reportToDate, reportTimezone)
                                     exportMessage = ""
-                                    csvLauncher.launch("allerflux-report-${reportDays}d.csv")
+                                    csvLauncher.launch("allerflux-report.csv")
                                 }, modifier = Modifier.weight(1f)) {
                                     Icon(Icons.Rounded.TableView, contentDescription = null)
                                     Spacer(Modifier.width(6.dp))
@@ -771,7 +771,7 @@ fun AllerfluxApp(context: Context) {
                                     pendingPdfToDate = reportToDate
                                     pendingPdfTimezone = reportTimezone
                                     exportMessage = ""
-                                    pdfLauncher.launch("allerflux-report-${reportDays}d.pdf")
+                                    pdfLauncher.launch("allerflux-report.pdf")
                                 }, modifier = Modifier.weight(1f)) {
                                     Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
                                     Spacer(Modifier.width(6.dp))
@@ -785,7 +785,7 @@ fun AllerfluxApp(context: Context) {
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
+                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · $reportPeriodLabel", color = Muted, fontSize = 12.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text("● Viewers", color = Accent, fontSize = 11.sp)
                                     Text("● Titles", color = Color(0xFFFFB86B), fontSize = 11.sp)
@@ -857,7 +857,7 @@ fun AllerfluxApp(context: Context) {
                     item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
                 }
                 if (selected == "Top Videos") {
-                    item { InfoCard("TITLE LEADERBOARD", "Top observed videos and episodes", "Ranked by periodic playback observations over the last $reportDays days.", "") }
+                    item { InfoCard("TITLE LEADERBOARD", "Top observed videos and episodes", "Ranked by periodic playback observations over $reportPeriodLabel.", "") }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO DATA", "No ranked titles yet", "Title rankings will appear as snapshots are collected.", "") }
                     val maxTitleSamples = reportDetails.topTitles.maxOfOrNull { it.samples } ?: 1
                     itemsIndexed(reportDetails.topTitles) { index, title ->
