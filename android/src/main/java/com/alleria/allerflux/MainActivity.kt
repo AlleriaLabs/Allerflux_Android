@@ -618,9 +618,9 @@ fun AllerfluxApp(context: Context) {
                 error = e.message ?: "Unable to load overview"
             }
             try { hourlyUsers = loadHourlyUsers(serverUrl, apiKey); hourlyUsersError = "" }
+            catch (e: Exception) { hourlyUsersError = e.message ?: "Unable to load 24-hour user trends" }
             try { dashboardAnalytics = loadDashboardAnalytics(serverUrl, apiKey); dashboardAnalyticsError = "" }
             catch (e: Exception) { dashboardAnalyticsError = e.message ?: "Unable to load playback rankings" }
-            catch (e: Exception) { hourlyUsersError = e.message ?: "Unable to load 24-hour user trends" }
             try { sessions = loadSessions(serverUrl, apiKey); activityError = "" }
             catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
             try { history = loadHistory(serverUrl, apiKey); historyError = "" }
