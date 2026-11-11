@@ -4,7 +4,8 @@ import os
 import sqlite3
 import tempfile
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
@@ -24,6 +25,42 @@ client = JellyfinClient()
 poll_task = None
 last_cleanup_at = None
 poll_status = {"last_attempt_at": None, "last_success_at": None, "last_error_type": None}
+
+
+def reporting_window(days: int, from_date: date | None, to_date: date | None, timezone_name: str):
+    """Return a validated local-date range and its UTC half-open boundaries."""
+    # FastAPI Query defaults are parameter descriptors when endpoints are
+    # invoked directly by unit tests; normalize those to their API defaults.
+    if not isinstance(from_date, date):
+        from_date = None
+    if not isinstance(to_date, date):
+        to_date = None
+    if not isinstance(timezone_name, str):
+        timezone_name = "UTC"
+    try:
+        report_tz = ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise HTTPException(status_code=422, detail="Unknown reporting timezone")
+    if (from_date is None) != (to_date is None):
+        raise HTTPException(status_code=422, detail="from_date and to_date must be supplied together")
+    if from_date is None:
+        local_end = datetime.now(report_tz).date()
+        local_start = local_end - timedelta(days=days - 1)
+    else:
+        local_start, local_end = from_date, to_date
+    if local_end < local_start:
+        raise HTTPException(status_code=422, detail="to_date must be on or after from_date")
+    if (local_end - local_start).days > 3650:
+        raise HTTPException(status_code=422, detail="Reporting range cannot exceed 10 years")
+    start_local = datetime.combine(local_start, time.min, tzinfo=report_tz)
+    end_local = datetime.combine(local_end + timedelta(days=1), time.min, tzinfo=report_tz)
+    return (start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc),
+            local_start, local_end, report_tz)
+
+
+def as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
 
 def item_info(s):
     item = s.get("NowPlayingItem") or {}
@@ -268,16 +305,22 @@ def alerts_history(
 @app.get("/api/v1/events/summary", dependencies=[Depends(require_api_key)])
 def playback_events_summary(
     days: int = Query(default=30, ge=1, le=365),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    rows = db.scalars(select(PlaybackEvent).where(PlaybackEvent.occurred_at >= since)).all()
+    start_utc, end_utc, local_start, local_end, _ = reporting_window(days, from_date, to_date, timezone_name)
+    rows = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.occurred_at >= start_utc, PlaybackEvent.occurred_at < end_utc
+    )).all()
     starts = [row for row in rows if row.event_type == "PlaybackStart"]
     stops = [row for row in rows if row.event_type == "PlaybackStop"]
     completions = [row for row in stops if row.played_to_completion is True]
     return {
-        "days": days,
-        "event_count": len(rows),
+        "days": (local_end - local_start).days + 1,
+        "from_date": local_start.isoformat(), "to_date": local_end.isoformat(),
+        "timezone": timezone_name, "event_count": len(rows),
         "playback_starts": len(starts),
         "playback_stops": len(stops),
         "completed_stops": len(completions),
@@ -417,12 +460,15 @@ def history(limit: int = 100, db: Session = Depends(get_db)):
 def reports_summary(
     days: int = Query(default=30, ge=1, le=365),
     group_by: str = Query(default="day", pattern="^(day|week|month)$"),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    today = datetime.now(timezone.utc).date()
-    first_day = today - timedelta(days=days - 1)
-    since = datetime(first_day.year, first_day.month, first_day.day, tzinfo=timezone.utc)
-    rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
+    start_utc, end_utc, first_day, last_day, report_tz = reporting_window(days, from_date, to_date, timezone_name)
+    rows = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= start_utc, SessionSnapshot.captured_at < end_utc
+    )).all()
 
     def bucket_start(day):
         if group_by == "week":
@@ -435,7 +481,7 @@ def reports_summary(
     users = set()
     titles = set()
     for row in rows:
-        period = bucket_start(row.captured_at.date())
+        period = bucket_start(as_utc(row.captured_at).astimezone(report_tz).date())
         key = period.isoformat()
         bucket = grouped.setdefault(key, {
             "date": key, "snapshots": 0, "playing": 0, "paused": 0,
@@ -453,7 +499,7 @@ def reports_summary(
 
     periods = []
     cursor = bucket_start(first_day)
-    last_period = bucket_start(today)
+    last_period = bucket_start(last_day)
     while cursor <= last_period:
         key = cursor.isoformat()
         bucket = grouped.get(key, {
@@ -473,7 +519,9 @@ def reports_summary(
             cursor += timedelta(days=1)
 
     return {
-        "days": days, "group_by": group_by, "snapshot_count": len(rows),
+        "days": (last_day - first_day).days + 1, "from_date": first_day.isoformat(),
+        "to_date": last_day.isoformat(), "timezone": timezone_name,
+        "group_by": group_by, "snapshot_count": len(rows),
         "observed_users": len(users), "observed_titles": len(titles),
         "playing_samples": sum(1 for row in rows if row.play_state == "playing"),
         "paused_samples": sum(1 for row in rows if row.play_state == "paused"),
@@ -485,26 +533,26 @@ def reports_summary(
 @app.get("/api/v1/reports/compare", dependencies=[Depends(require_api_key)])
 def reports_compare(
     days: int = Query(default=30, ge=1, le=365),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    now = datetime.now(timezone.utc)
-    current_start = now - timedelta(days=days)
-    previous_start = current_start - timedelta(days=days)
+    current_start, current_end, local_start, local_end, report_tz = reporting_window(days, from_date, to_date, timezone_name)
+    period_days = (local_end - local_start).days + 1
+    previous_local_start = local_start - timedelta(days=period_days)
+    previous_start = datetime.combine(previous_local_start, time.min, tzinfo=report_tz).astimezone(timezone.utc)
     current_snapshots = db.scalars(select(SessionSnapshot).where(
-        SessionSnapshot.captured_at >= current_start,
-        SessionSnapshot.captured_at < now
+        SessionSnapshot.captured_at >= current_start, SessionSnapshot.captured_at < current_end
     )).all()
     previous_snapshots = db.scalars(select(SessionSnapshot).where(
-        SessionSnapshot.captured_at >= previous_start,
-        SessionSnapshot.captured_at < current_start
+        SessionSnapshot.captured_at >= previous_start, SessionSnapshot.captured_at < current_start
     )).all()
     current_events = db.scalars(select(PlaybackEvent).where(
-        PlaybackEvent.occurred_at >= current_start,
-        PlaybackEvent.occurred_at < now
+        PlaybackEvent.occurred_at >= current_start, PlaybackEvent.occurred_at < current_end
     )).all()
     previous_events = db.scalars(select(PlaybackEvent).where(
-        PlaybackEvent.occurred_at >= previous_start,
-        PlaybackEvent.occurred_at < current_start
+        PlaybackEvent.occurred_at >= previous_start, PlaybackEvent.occurred_at < current_start
     )).all()
 
     def snapshot_metrics(rows):
@@ -533,7 +581,8 @@ def reports_compare(
             "change_percent": round(delta * 100 / previous_value, 1) if previous_value else None,
         }
     return {
-        "days": days,
+        "days": (local_end - local_start).days + 1, "from_date": local_start.isoformat(),
+        "to_date": local_end.isoformat(), "timezone": timezone_name,
         "current_period_start": current_start.isoformat(),
         "previous_period_start": previous_start.isoformat(),
         "metrics": metrics,
@@ -545,10 +594,15 @@ def reports_compare(
 def reports_top_titles(
     days: int = Query(default=30, ge=1, le=365),
     limit: int = Query(default=10, ge=1, le=50),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
+    start_utc, end_utc, local_start, local_end, _ = reporting_window(days, from_date, to_date, timezone_name)
+    rows = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= start_utc, SessionSnapshot.captured_at < end_utc
+    )).all()
     grouped = {}
     for row in rows:
         if not row.item_id:
@@ -571,8 +625,9 @@ def reports_top_titles(
         observed_users = len(item.pop("users"))
         items.append({**item, "observed_users": observed_users})
     return {
-        "days": days,
-        "items": items,
+        "days": (local_end - local_start).days + 1,
+        "from_date": local_start.isoformat(), "to_date": local_end.isoformat(),
+        "timezone": timezone_name, "items": items,
         "ranking_basis": "snapshot_count",
         "accuracy_note": "Ranked by periodic observations, not exact plays, completion, or watch duration.",
     }
@@ -582,10 +637,15 @@ def reports_top_titles(
 def reports_top_users(
     days: int = Query(default=30, ge=1, le=365),
     limit: int = Query(default=20, ge=1, le=100),
+    from_date: date | None = Query(default=None),
+    to_date: date | None = Query(default=None),
+    timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
+    start_utc, end_utc, local_start, local_end, _ = reporting_window(days, from_date, to_date, timezone_name)
+    rows = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= start_utc, SessionSnapshot.captured_at < end_utc
+    )).all()
     grouped = {}
     for row in rows:
         if not row.user_id:
@@ -608,8 +668,9 @@ def reports_top_users(
         observed_titles = len(user.pop("titles"))
         users.append({**user, "observed_titles": observed_titles})
     return {
-        "days": days,
-        "users": users,
+        "days": (local_end - local_start).days + 1,
+        "from_date": local_start.isoformat(), "to_date": local_end.isoformat(),
+        "timezone": timezone_name, "users": users,
         "ranking_basis": "snapshot_count",
         "accuracy_note": "Ranked by periodic observations, not exact plays or total watch time.",
     }

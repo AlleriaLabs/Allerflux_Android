@@ -8,7 +8,7 @@ Jellyfin's `/Sessions` endpoint describes sessions that exist now. Allerflux rec
 
 Snapshots do not reliably establish exact playback starts, stop times, watch duration, completion, or unique plays. A single long playback may contribute many snapshots. The app labels these as observations. Top-title and top-user rankings are likewise sample-based: longer sessions and shorter polling intervals can produce more samples.
 
-`GET /api/v1/reports/compare?days=30` compares the selected period with the immediately preceding period of equal length. Snapshot metrics and webhook event metrics are returned separately.
+`GET /api/v1/reports/compare?days=30` compares the selected period with the immediately preceding period of equal length. Snapshot metrics and webhook event metrics are returned separately. Reports also accept an inclusive custom local-date range with `from_date=YYYY-MM-DD&to_date=YYYY-MM-DD&timezone=Asia/Manila`. Both dates must be supplied together; the timezone must be a valid IANA timezone. The companion converts local calendar boundaries to UTC before querying. Preset `days` filters remain available when custom dates are omitted.
 
 ## Event-based playback analytics
 
@@ -16,7 +16,7 @@ For higher-fidelity playback records, configure the official Jellyfin Webhook pl
 
 Use the plugin's JSON body template with these fields: `NotificationType`, `UtcTimestamp`, `UserId`, `NotificationUsername`, `ItemId`, `Name`, `ItemType`, `PlaybackPositionTicks`, `RunTimeTicks`, `PlayedToCompletion`, `PlayMethod`, `DeviceName`, `DeviceId`, and `ClientName`. Configure the plugin to send only the three playback notification types. The timestamp is required for stable event identity.
 
-- `GET /api/v1/events/summary?days=30` — event-based starts, stops, explicit completion flags, distinct users and titles.
+- `GET /api/v1/events/summary?days=30` — event-based starts, stops, explicit completion flags, distinct users and titles; also accepts `from_date`, `to_date` and `timezone`.
 - `GET /api/v1/events/recent?limit=100` — recent immutable playback event records.
 
 Event counts represent notifications received by the companion. They are distinct from periodic snapshot observations. A stop is not automatically a completion; completion is counted only when Jellyfin explicitly supplies `PlayedToCompletion=true`. Allerflux does not infer total watch duration from sparse progress events.
@@ -25,13 +25,14 @@ Event counts represent notifications received by the companion. They are distinc
 All endpoints except `/health` require the `X-Allerflux-Key` header.
 
 - `GET /health` — service health.
-- `POST /api/v1/webhooks/jellyfin` — authenticated Jellyfin playback event ingestion (separate webhook secret).\n- `GET /api/v1/events/summary?days=30` — event-derived playback counts.\n- `GET /api/v1/events/recent?limit=100` — recent event records.\n- `GET /api/v1/overview` — registered users and live session counts.
+- `POST /api/v1/webhooks/jellyfin` — authenticated Jellyfin playback event ingestion (separate webhook secret).
+- `GET /api/v1/events/summary?days=30` — event-derived playback counts.\n- `GET /api/v1/events/recent?limit=100` — recent event records.\n- `GET /api/v1/overview` — registered users and live session counts.
 - `GET /api/v1/sessions` — current Jellyfin sessions and playback state.
 - `GET /api/v1/library` — Jellyfin movie, series, episode, song, album, artist, and box-set counts.
 - `GET /api/v1/history?limit=200` — recent stored snapshots.
-- `GET /api/v1/reports/summary?days=30&group_by=day|week|month` — observed snapshot, user, title, playing, and paused counts with a continuous daily series (zero-filled dates).
-- `GET /api/v1/reports/top-titles?days=30&limit=10` — titles ranked by observed snapshot count, with observed users and playing/paused samples.
-- `GET /api/v1/reports/top-users?days=30&limit=20` — users ranked by observed snapshot count, with distinct observed titles and playing/paused samples.
+- `GET /api/v1/reports/summary?days=30&group_by=day|week|month` — observed snapshot, user, title, playing, and paused counts with a continuous grouped series (zero-filled buckets); also accepts custom local dates and an IANA timezone.
+- `GET /api/v1/reports/top-titles?days=30&limit=10` — titles ranked by observed snapshot count, with observed users and playing/paused samples; accepts the same date/timezone filters.
+- `GET /api/v1/reports/top-users?days=30&limit=20` — users ranked by observed snapshot count, with distinct observed titles and playing/paused samples; accepts the same date/timezone filters.
 - `GET /api/v1/items/{item_id}/analytics` — observed snapshots and observed users for an item.
 
 ## Future exact playback analytics
