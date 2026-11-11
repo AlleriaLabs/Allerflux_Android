@@ -537,9 +537,10 @@ def reports_compare(
     timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    current_start, current_end, local_start, local_end, _ = reporting_window(days, from_date, to_date, timezone_name)
-    period_length = current_end - current_start
-    previous_start = current_start - period_length
+    current_start, current_end, local_start, local_end, report_tz = reporting_window(days, from_date, to_date, timezone_name)
+    period_days = (local_end - local_start).days + 1
+    previous_local_start = local_start - timedelta(days=period_days)
+    previous_start = datetime.combine(previous_local_start, time.min, tzinfo=report_tz).astimezone(timezone.utc)
     current_snapshots = db.scalars(select(SessionSnapshot).where(
         SessionSnapshot.captured_at >= current_start, SessionSnapshot.captured_at < current_end
     )).all()
@@ -597,7 +598,7 @@ def reports_top_titles(
     timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    start_utc, end_utc, _, _, _ = reporting_window(days, from_date, to_date, timezone_name)
+    start_utc, end_utc, local_start, local_end, _ = reporting_window(days, from_date, to_date, timezone_name)
     rows = db.scalars(select(SessionSnapshot).where(
         SessionSnapshot.captured_at >= start_utc, SessionSnapshot.captured_at < end_utc
     )).all()
@@ -623,8 +624,9 @@ def reports_top_titles(
         observed_users = len(item.pop("users"))
         items.append({**item, "observed_users": observed_users})
     return {
-        "days": days,
-        "items": items,
+        "days": (local_end - local_start).days + 1,
+        "from_date": local_start.isoformat(), "to_date": local_end.isoformat(),
+        "timezone": timezone_name, "items": items,
         "ranking_basis": "snapshot_count",
         "accuracy_note": "Ranked by periodic observations, not exact plays, completion, or watch duration.",
     }
@@ -639,7 +641,7 @@ def reports_top_users(
     timezone_name: str = Query(default="UTC", alias="timezone"),
     db: Session = Depends(get_db),
 ):
-    start_utc, end_utc, _, _, _ = reporting_window(days, from_date, to_date, timezone_name)
+    start_utc, end_utc, local_start, local_end, _ = reporting_window(days, from_date, to_date, timezone_name)
     rows = db.scalars(select(SessionSnapshot).where(
         SessionSnapshot.captured_at >= start_utc, SessionSnapshot.captured_at < end_utc
     )).all()
@@ -665,8 +667,9 @@ def reports_top_users(
         observed_titles = len(user.pop("titles"))
         users.append({**user, "observed_titles": observed_titles})
     return {
-        "days": days,
-        "users": users,
+        "days": (local_end - local_start).days + 1,
+        "from_date": local_start.isoformat(), "to_date": local_end.isoformat(),
+        "timezone": timezone_name, "users": users,
         "ranking_basis": "snapshot_count",
         "accuracy_note": "Ranked by periodic observations, not exact plays or total watch time.",
     }
