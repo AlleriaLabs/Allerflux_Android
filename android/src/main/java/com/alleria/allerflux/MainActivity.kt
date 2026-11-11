@@ -122,6 +122,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class AnalyticsRank(val title: String, val count: Int, val detail: String = "")
+private data class DashboardAnalytics(
+    val watchingUsers: List<String> = emptyList(),
+    val currentMovies: List<AnalyticsRank> = emptyList(),
+    val mostPlayed: List<AnalyticsRank> = emptyList(),
+    val mostCompleted: List<AnalyticsRank> = emptyList(),
+    val topViewers: List<AnalyticsRank> = emptyList(),
+    val watchTimeNote: String = ""
+)
 private data class HourlyUsersPoint(val hour: String, val onlineUsers: Int, val uniqueUsers: Int)
 private data class Overview(
     val users: String = "—",
@@ -193,6 +202,33 @@ private suspend fun apiGetBytes(base: String, key: String, path: String): ByteAr
         }
         c.inputStream.use { it.readBytes() }
     } finally { c.disconnect() }
+}
+
+private suspend fun loadDashboardAnalytics(base: String, key: String): DashboardAnalytics {
+    val root = JSONObject(apiGet(base, key, "/api/v1/analytics/dashboard"))
+    fun readRanks(name: String, countField: String, detailField: String = ""): List<AnalyticsRank> {
+        val rows = root.optJSONArray(name) ?: JSONArray()
+        return (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            AnalyticsRank(row.safeText("title", row.safeText("username", "Unknown")),
+                row.optInt(countField), if (detailField.isBlank()) "" else row.safeText(detailField, ""))
+        }
+    }
+    val users = root.optJSONArray("currently_watching_users") ?: JSONArray()
+    val movies = root.optJSONArray("currently_watched_movies") ?: JSONArray()
+    val currentMovies = (0 until movies.length()).map { i ->
+        val row = movies.getJSONObject(i)
+        AnalyticsRank(row.safeText("title", "Unknown movie"), 0, row.safeText("username", ""))
+    }
+    return DashboardAnalytics(
+        watchingUsers = (0 until users.length()).map { users.optString(it) },
+        currentMovies = currentMovies,
+        mostPlayed = readRanks("most_played_movies", "count"),
+        mostCompleted = readRanks("most_completed_movies", "count"),
+        topViewers = readRanks("top_viewers_by_watch_time", "observed_seconds", "samples")
+            .map { it.copy(detail = formatDuration(it.count.toLong())) },
+        watchTimeNote = root.safeText("watch_time_method", "")
+    )
 }
 
 private suspend fun loadHourlyUsers(base: String, key: String): List<HourlyUsersPoint> {
@@ -442,6 +478,8 @@ fun AllerfluxApp(context: Context) {
     var overview by remember { mutableStateOf(Overview()) }
     var hourlyUsers by remember { mutableStateOf<List<HourlyUsersPoint>>(emptyList()) }
     var hourlyUsersError by remember { mutableStateOf("") }
+    var dashboardAnalytics by remember { mutableStateOf(DashboardAnalytics()) }
+    var dashboardAnalyticsError by remember { mutableStateOf("") }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
     var library by remember { mutableStateOf(LibraryStats()) }
@@ -580,6 +618,8 @@ fun AllerfluxApp(context: Context) {
                 error = e.message ?: "Unable to load overview"
             }
             try { hourlyUsers = loadHourlyUsers(serverUrl, apiKey); hourlyUsersError = "" }
+            try { dashboardAnalytics = loadDashboardAnalytics(serverUrl, apiKey); dashboardAnalyticsError = "" }
+            catch (e: Exception) { dashboardAnalyticsError = e.message ?: "Unable to load playback rankings" }
             catch (e: Exception) { hourlyUsersError = e.message ?: "Unable to load 24-hour user trends" }
             try { sessions = loadSessions(serverUrl, apiKey); activityError = "" }
             catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
@@ -858,6 +898,17 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Playing now", overview.playing, "Currently playing", Modifier.weight(1f))
                         MetricCard("Paused", overview.paused, "Paused sessions", Modifier.weight(1f))
                     } }
+                    item { SectionHeading("Live viewing") }
+                    item { MetricCard("Currently watching users", dashboardAnalytics.watchingUsers.size.toString(),
+                        dashboardAnalytics.watchingUsers.joinToString(", ").ifBlank { "No active viewers" }) }
+                    item { RankingListCard("Movies being watched now", dashboardAnalytics.currentMovies, "No movies currently playing") }
+                    item { SectionHeading("Movie rankings · 30 days") }
+                    item { RankingListCard("Most played movies", dashboardAnalytics.mostPlayed, "No PlaybackStart movie events recorded") }
+                    item { RankingListCard("Most completed movies", dashboardAnalytics.mostCompleted, "No confirmed movie completions recorded") }
+                    item { RankingListCard("Top users by watch time", dashboardAnalytics.topViewers, "No playing-session observations recorded") }
+                    if (dashboardAnalyticsError.isNotBlank()) item { InfoCard("PLAYBACK ANALYTICS", "Some rankings are unavailable", dashboardAnalyticsError, "") }
+                    if (dashboardAnalytics.watchTimeNote.isNotBlank()) item { Text(dashboardAnalytics.watchTimeNote,
+                        color = Muted, fontSize = 10.sp, lineHeight = 14.sp) }
                     item { SectionHeading("User activity · 24 hours") }
                     item { HourlyTrendCard("User online", "Peak concurrent logged-in users per hour", hourlyUsers, true, hourlyUsersError) }
                     item { HourlyTrendCard("Today's users", "Unique accounts active in each hour", hourlyUsers, false, hourlyUsersError) }
@@ -1619,6 +1670,35 @@ private fun HourlyTrendCard(
                 Text(points.firstOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
                 Text("24-hour window · Asia/Manila", color = Muted, fontSize = 9.sp)
                 Text(points.lastOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RankingListCard(title: String, rows: List<AnalyticsRank>, emptyMessage: String) {
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 10.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            if (rows.isEmpty()) {
+                Text(emptyMessage, color = Muted, fontSize = 11.sp)
+            } else rows.forEachIndexed { index, row ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text((index + 1).toString().padStart(2, '0'), color = AccentPurple,
+                        fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(row.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (row.detail.isNotBlank()) Text(row.detail, color = Muted, fontSize = 9.sp)
+                    }
+                    if (row.count > 0) Text(if (title.contains("watch time", true)) formatDuration(row.count.toLong()) else row.count.toString(),
+                        color = Accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (index != rows.lastIndex) Divider(color = Border.copy(alpha = 0.7f))
             }
         }
     }
