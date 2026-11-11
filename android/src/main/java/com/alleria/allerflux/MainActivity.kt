@@ -80,6 +80,7 @@ private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val t
 private data class EventSummary(val starts: Int = 0, val stops: Int = 0, val completed: Int = 0, val users: Int = 0, val titles: Int = 0)
 private data class AlertSummary(val active: Int = 0, val total: Int = 0, val idleThreshold: Int = 1800, val cooldown: Int = 60, val outboundEnabled: Boolean = false)
 private data class AlertRow(val kind: String, val title: String, val message: String, val status: String, val time: String)
+private data class Diagnostics(val databaseConnected: Boolean = false, val pollingEnabled: Boolean = false, val pollInterval: Int = 20, val lastSuccess: String = "Not yet", val lastError: String = "None", val snapshotRetention: Int = 365, val eventRetention: Int = 730)
 private data class DailyStat(val date: String, val snapshots: Int, val users: Int, val titles: Int)
 private data class TopTitle(val name: String, val type: String, val samples: Int, val users: Int)
 private data class TopUser(val name: String, val samples: Int, val titles: Int)
@@ -104,6 +105,24 @@ private suspend fun apiGet(base: String, key: String, path: String): String = wi
         body
     } finally { c.disconnect() }
 }
+
+private suspend fun apiGetBytes(base: String, key: String, path: String): ByteArray = withContext(Dispatchers.IO) {
+    val c = URL(base.trim().trimEnd('/') + path).openConnection() as HttpURLConnection
+    try {
+        c.requestMethod = "GET"
+        c.connectTimeout = 10000
+        c.readTimeout = 30000
+        c.setRequestProperty("Accept", "application/octet-stream")
+        c.setRequestProperty("X-Allerflux-Key", key)
+        val code = c.responseCode
+        if (code !in 200..299) {
+            val body = c.errorStream?.bufferedReader()?.use { it.readText() } ?: "Request failed"
+            error("HTTP $code: $body")
+        }
+        c.inputStream.use { it.readBytes() }
+    } finally { c.disconnect() }
+}
+
 private suspend fun loadOverview(base: String, key: String): Overview {
     val j = JSONObject(apiGet(base, key, "/api/v1/overview"))
     return Overview(j.optInt("registered_users").toString(), j.optInt("active_sessions").toString(),
@@ -171,6 +190,15 @@ private suspend fun loadEventSummary(base: String, key: String, days: Int): Even
         j.optInt("completed_stops"), j.optInt("distinct_users"), j.optInt("distinct_titles"))
 }
 
+
+
+private suspend fun loadDiagnostics(base: String, key: String): Diagnostics {
+    val j = JSONObject(apiGet(base, key, "/api/v1/diagnostics"))
+    return Diagnostics(j.optBoolean("database_connected"), j.optBoolean("jellyfin_polling_enabled"),
+        j.optInt("poll_interval_seconds", 20), j.optString("last_poll_success_at", "Not yet"),
+        j.optString("last_poll_error_type", "None"), j.optInt("snapshot_retention_days", 365),
+        j.optInt("event_retention_days", 730))
+}
 
 private suspend fun loadAlertSummary(base: String, key: String): AlertSummary {
     val j = JSONObject(apiGet(base, key, "/api/v1/alerts/summary"))
@@ -317,6 +345,10 @@ fun AllerfluxApp(context: Context) {
     var alertSummary by remember { mutableStateOf(AlertSummary()) }
     var alertHistory by remember { mutableStateOf<List<AlertRow>>(emptyList()) }
     var alertError by remember { mutableStateOf("") }
+    var diagnostics by remember { mutableStateOf(Diagnostics()) }
+    var diagnosticsError by remember { mutableStateOf("") }
+    var backupMessage by remember { mutableStateOf("") }
+    var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     var reportDays by remember { mutableIntStateOf(30) }
     var reportError by remember { mutableStateOf("") }
     var exportMessage by remember { mutableStateOf("") }
@@ -341,6 +373,17 @@ fun AllerfluxApp(context: Context) {
                     }
                 }
                 exportMessage = if (result.isSuccess) "CSV report saved." else "CSV export failed: ${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.sqlite3")) { uri ->
+        if (uri != null) {
+            val bytes = pendingBackup
+            if (bytes != null) scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Unable to open destination") }
+                }
+                backupMessage = if (result.isSuccess) "Database backup saved." else "Backup save failed: ${result.exceptionOrNull()?.message}"
             }
         }
     }
@@ -382,6 +425,8 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { eventError = e.message ?: "Playback events are unavailable" }
             try { alertSummary = loadAlertSummary(serverUrl, apiKey); alertHistory = loadAlertHistory(serverUrl, apiKey); alertError = "" }
             catch (e: Exception) { alertError = e.message ?: "Alert history is unavailable" }
+            try { diagnostics = loadDiagnostics(serverUrl, apiKey); diagnosticsError = "" }
+            catch (e: Exception) { diagnosticsError = e.message ?: "Diagnostics are unavailable" }
             loading = false
         }
     }
@@ -780,6 +825,34 @@ fun AllerfluxApp(context: Context) {
                                 }
                                 OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
                             }
+                        }
+                    }
+                    item { InfoCard("COMPANION DIAGNOSTICS",
+                        if (diagnosticsError.isBlank()) (if (diagnostics.databaseConnected) "Database healthy" else "Database unavailable") else "Diagnostics unavailable",
+                        if (diagnosticsError.isBlank()) "Jellyfin polling: ${if (diagnostics.pollingEnabled) "enabled" else "not configured"} · interval: ${diagnostics.pollInterval}s · last success: ${diagnostics.lastSuccess}"
+                            else diagnosticsError,
+                        if (diagnosticsError.isBlank()) "Retention: ${diagnostics.snapshotRetention} days of snapshots · ${diagnostics.eventRetention} days of events · last poll error: ${diagnostics.lastError}" else "") }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            OutlinedButton(onClick = {
+                                backupMessage = "Preparing database backup…"
+                                scope.launch {
+                                    runCatching { apiGetBytes(serverUrl, apiKey, "/api/v1/admin/backup") }
+                                        .onSuccess { bytes ->
+                                            pendingBackup = bytes
+                                            backupMessage = "Choose where to save your database backup."
+                                            backupLauncher.launch("allerflux-backup.sqlite3")
+                                        }
+                                        .onFailure { backupMessage = "Backup failed: ${it.message}" }
+                                }
+                            }, modifier = Modifier.fillMaxWidth(), enabled = serverUrl.isNotBlank() && apiKey.isNotBlank() && !loading) {
+                                Icon(Icons.Rounded.Backup, contentDescription = null)
+                                Spacer(Modifier.width(7.dp))
+                                Text("Download database backup")
+                            }
+                            if (backupMessage.isNotBlank()) Text(backupMessage, color = Accent, fontSize = 12.sp)
+                            Text("Database only. Keep your existing deploy/.env file and Docker volume safe. Restore is an operator-controlled maintenance step.",
+                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
                         }
                     }
                     item { InfoCard("APP PREFERENCES", "Automatic refresh · 60 seconds", "Dark theme with navy surfaces and cyan accents.", "") }
