@@ -36,7 +36,7 @@ class UserActivityAnalyticsTests(unittest.TestCase):
                 position_ticks=100, captured_at=now, raw_json="{}"),
             SessionSnapshot(jellyfin_session_id="s3", user_id="u3", username="Three",
                 item_id=None, item_name=None, media_type=None, play_state="idle",
-                position_ticks=0, captured_at=now + timedelta(seconds=1), raw_json="{}"),
+                position_ticks=0, captured_at=now, raw_json="{}"),
         ])
         self.db.commit()
 
