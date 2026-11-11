@@ -413,18 +413,31 @@ def history(limit: int = 100, db: Session = Depends(get_db)):
     } for r in rows]
 
 @app.get("/api/v1/reports/summary", dependencies=[Depends(require_api_key)])
-def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = Depends(get_db)):
+def reports_summary(
+    days: int = Query(default=30, ge=1, le=365),
+    group_by: str = Query(default="day", pattern="^(day|week|month)$"),
+    db: Session = Depends(get_db),
+):
     today = datetime.now(timezone.utc).date()
     first_day = today - timedelta(days=days - 1)
     since = datetime(first_day.year, first_day.month, first_day.day, tzinfo=timezone.utc)
     rows = db.scalars(select(SessionSnapshot).where(SessionSnapshot.captured_at >= since)).all()
-    by_day = {}
+
+    def bucket_start(day):
+        if group_by == "week":
+            return day - timedelta(days=day.weekday())
+        if group_by == "month":
+            return day.replace(day=1)
+        return day
+
+    grouped = {}
     users = set()
     titles = set()
     for row in rows:
-        day = row.captured_at.date().isoformat()
-        bucket = by_day.setdefault(day, {
-            "date": day, "snapshots": 0, "playing": 0, "paused": 0,
+        period = bucket_start(row.captured_at.date())
+        key = period.isoformat()
+        bucket = grouped.setdefault(key, {
+            "date": key, "snapshots": 0, "playing": 0, "paused": 0,
             "users": set(), "titles": set()
         })
         bucket["snapshots"] += 1
@@ -436,24 +449,96 @@ def reports_summary(days: int = Query(default=30, ge=1, le=365), db: Session = D
         if row.item_id:
             titles.add(row.item_id)
             bucket["titles"].add(row.item_id)
-    # Fill missing dates and expose distinct viewers and titles per day.
-    daily = []
-    for offset in range(days):
-        day = (first_day + timedelta(days=offset)).isoformat()
-        bucket = by_day.get(day, {"date": day, "snapshots": 0, "playing": 0, "paused": 0, "users": set(), "titles": set()})
-        daily.append({
-            "date": day, "snapshots": bucket["snapshots"], "playing": bucket["playing"],
+
+    periods = []
+    cursor = bucket_start(first_day)
+    last_period = bucket_start(today)
+    while cursor <= last_period:
+        key = cursor.isoformat()
+        bucket = grouped.get(key, {
+            "date": key, "snapshots": 0, "playing": 0, "paused": 0,
+            "users": set(), "titles": set()
+        })
+        periods.append({
+            "date": key, "snapshots": bucket["snapshots"], "playing": bucket["playing"],
             "paused": bucket["paused"], "unique_users": len(bucket["users"]),
             "unique_titles": len(bucket["titles"])
         })
+        if group_by == "week":
+            cursor += timedelta(days=7)
+        elif group_by == "month":
+            cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
+        else:
+            cursor += timedelta(days=1)
+
     return {
-        "days": days, "snapshot_count": len(rows), "observed_users": len(users),
-        "observed_titles": len(titles),
+        "days": days, "group_by": group_by, "snapshot_count": len(rows),
+        "observed_users": len(users), "observed_titles": len(titles),
         "playing_samples": sum(1 for row in rows if row.play_state == "playing"),
         "paused_samples": sum(1 for row in rows if row.play_state == "paused"),
-        "daily": daily,
+        "daily": periods,
         "accuracy_note": "Periodic session observations only; not exact plays, completion, or watch duration.",
     }
+
+
+@app.get("/api/v1/reports/compare", dependencies=[Depends(require_api_key)])
+def reports_compare(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    now = datetime.now(timezone.utc)
+    current_start = now - timedelta(days=days)
+    previous_start = current_start - timedelta(days=days)
+    current_snapshots = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= current_start,
+        SessionSnapshot.captured_at < now
+    )).all()
+    previous_snapshots = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= previous_start,
+        SessionSnapshot.captured_at < current_start
+    )).all()
+    current_events = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.occurred_at >= current_start,
+        PlaybackEvent.occurred_at < now
+    )).all()
+    previous_events = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.occurred_at >= previous_start,
+        PlaybackEvent.occurred_at < current_start
+    )).all()
+
+    def snapshot_metrics(rows):
+        return {
+            "snapshot_count": len(rows),
+            "observed_users": len({row.user_id for row in rows if row.user_id}),
+            "observed_titles": len({row.item_id for row in rows if row.item_id}),
+            "playing_samples": sum(1 for row in rows if row.play_state == "playing"),
+        }
+
+    def event_metrics(rows):
+        return {
+            "playback_starts": sum(1 for row in rows if row.event_type == "PlaybackStart"),
+            "playback_stops": sum(1 for row in rows if row.event_type == "PlaybackStop"),
+            "completed_stops": sum(1 for row in rows if row.event_type == "PlaybackStop" and row.played_to_completion is True),
+        }
+
+    current = {**snapshot_metrics(current_snapshots), **event_metrics(current_events)}
+    previous = {**snapshot_metrics(previous_snapshots), **event_metrics(previous_events)}
+    metrics = {}
+    for name, current_value in current.items():
+        previous_value = previous[name]
+        delta = current_value - previous_value
+        metrics[name] = {
+            "current": current_value, "previous": previous_value, "delta": delta,
+            "change_percent": round(delta * 100 / previous_value, 1) if previous_value else None,
+        }
+    return {
+        "days": days,
+        "current_period_start": current_start.isoformat(),
+        "previous_period_start": previous_start.isoformat(),
+        "metrics": metrics,
+        "accuracy_note": "Snapshot and webhook event metrics are compared separately; neither is a watch-duration estimate.",
+    }
+
 
 @app.get("/api/v1/reports/top-titles", dependencies=[Depends(require_api_key)])
 def reports_top_titles(

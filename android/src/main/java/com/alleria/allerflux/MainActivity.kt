@@ -77,6 +77,8 @@ private fun formatDuration(seconds: Long): String {
 private data class HistoryRow(val user: String, val title: String, val type: String, val state: String, val time: String)
 private data class LibraryStats(val movies: Int = 0, val series: Int = 0, val episodes: Int = 0, val songs: Int = 0, val albums: Int = 0, val artists: Int = 0)
 private data class ReportStats(val snapshots: Int = 0, val users: Int = 0, val titles: Int = 0, val playing: Int = 0, val paused: Int = 0)
+private data class CompareMetric(val current: Int = 0, val previous: Int = 0, val delta: Int = 0, val percent: Double? = null)
+private data class CompareSummary(val snapshots: CompareMetric = CompareMetric(), val users: CompareMetric = CompareMetric(), val starts: CompareMetric = CompareMetric(), val completions: CompareMetric = CompareMetric())
 private data class EventSummary(val starts: Int = 0, val stops: Int = 0, val completed: Int = 0, val users: Int = 0, val titles: Int = 0)
 private data class AlertSummary(val active: Int = 0, val total: Int = 0, val idleThreshold: Int = 1800, val cooldown: Int = 60, val outboundEnabled: Boolean = false)
 private data class AlertRow(val kind: String, val title: String, val message: String, val status: String, val time: String)
@@ -160,8 +162,8 @@ private suspend fun loadReportStats(base: String, key: String, days: Int): Repor
         j.optInt("playing_samples"), j.optInt("paused_samples"))
 }
 
-private suspend fun loadReportDetails(base: String, key: String, days: Int): ReportDetails {
-    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=$days"))
+private suspend fun loadReportDetails(base: String, key: String, days: Int, groupBy: String): ReportDetails {
+    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=$days&group_by=$groupBy"))
     val dailyJson = summary.optJSONArray("daily") ?: JSONArray()
     val daily = (0 until dailyJson.length()).map {
         val row = dailyJson.getJSONObject(it)
@@ -183,6 +185,20 @@ private suspend fun loadReportDetails(base: String, key: String, days: Int): Rep
     return ReportDetails(daily, titles, users)
 }
 
+
+
+private suspend fun loadReportCompare(base: String, key: String, days: Int): CompareSummary {
+    val root = JSONObject(apiGet(base, key, "/api/v1/reports/compare?days=$days"))
+    val metrics = root.optJSONObject("metrics") ?: JSONObject()
+    fun read(name: String): CompareMetric {
+        val item = metrics.optJSONObject(name) ?: JSONObject()
+        val percent = if (item.isNull("change_percent")) null else item.optDouble("change_percent")
+        return CompareMetric(item.optInt("current"), item.optInt("previous"),
+            item.optInt("delta"), percent)
+    }
+    return CompareSummary(read("snapshot_count"), read("observed_users"),
+        read("playback_starts"), read("completed_stops"))
+}
 
 private suspend fun loadEventSummary(base: String, key: String, days: Int): EventSummary {
     val j = JSONObject(apiGet(base, key, "/api/v1/events/summary?days=$days"))
@@ -226,11 +242,19 @@ private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
 }
 
 
+
+private fun deltaLabel(metric: CompareMetric): String {
+    val prefix = if (metric.delta > 0) "+" else ""
+    val percent = metric.percent?.let { " · ${if (it > 0) "+" else ""}${it}%" } ?: ""
+    return "$prefix${metric.delta}$percent"
+}
+
 private fun csvCell(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
 
-private fun buildReportCsv(days: Int, stats: ReportStats, details: ReportDetails, events: EventSummary): String = buildString {
+private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, details: ReportDetails, events: EventSummary): String = buildString {
     appendLine("Allerflux viewing report")
     appendLine("Period days,$days")
+    appendLine("Grouping,$granularity")
     appendLine("Snapshot observations,${stats.snapshots}")
     appendLine("Observed users,${stats.users}")
     appendLine("Observed titles,${stats.titles}")
@@ -256,7 +280,7 @@ private fun buildReportCsv(days: Int, stats: ReportStats, details: ReportDetails
     appendLine("Accuracy: snapshot counts are periodic observations, not exact plays or watch duration. Event counts come from received Jellyfin webhook notifications; completion is counted only when explicitly supplied.")
 }
 
-private fun buildReportPdf(output: OutputStream, days: Int, stats: ReportStats,
+private fun buildReportPdf(output: OutputStream, days: Int, granularity: String, stats: ReportStats,
     details: ReportDetails, events: EventSummary) {
     val lines = mutableListOf(
         "Reporting period: $days days",
@@ -308,7 +332,7 @@ private fun buildReportPdf(output: OutputStream, days: Int, stats: ReportStats,
             typeface = Typeface.create("sans-serif", Typeface.NORMAL)
         }
         canvas.drawText("ALLERFLUX", 40f, 48f, titlePaint)
-        canvas.drawText("MEDIA SERVER INTELLIGENCE  ·  $days-DAY REPORT", 40f, 76f, metaPaint)
+        canvas.drawText("MEDIA SERVER INTELLIGENCE  ·  $days-DAY  ·  ${granularity.uppercase()} ROLLUP", 40f, 76f, metaPaint)
         var y = 145f
         chunk.forEach { line ->
             if (line.isNotBlank() && (line.startsWith("DAILY") || line.startsWith("TOP "))) {
@@ -350,10 +374,14 @@ fun AllerfluxApp(context: Context) {
     var backupMessage by remember { mutableStateOf("") }
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     var reportDays by remember { mutableIntStateOf(30) }
+    var reportGranularity by remember { mutableStateOf("day") }
+    var compareSummary by remember { mutableStateOf(CompareSummary()) }
+    var compareError by remember { mutableStateOf("") }
     var reportError by remember { mutableStateOf("") }
     var exportMessage by remember { mutableStateOf("") }
     var pendingCsv by remember { mutableStateOf("") }
     var pendingPdfDays by remember { mutableIntStateOf(30) }
+    var pendingPdfGranularity by remember { mutableStateOf("day") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
@@ -393,7 +421,7 @@ fun AllerfluxApp(context: Context) {
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use { buildReportPdf(it, days, reportStats, reportDetails, eventSummary) }
+                        context.contentResolver.openOutputStream(uri)?.use { buildReportPdf(it, days, pendingPdfGranularity, reportStats, reportDetails, eventSummary) }
                             ?: error("Unable to open destination")
                     }
                 }
@@ -419,8 +447,10 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
             try { library = loadLibrary(serverUrl, apiKey); libraryError = "" }
             catch (e: Exception) { libraryError = e.message ?: "Unable to load library inventory" }
-            try { reportStats = loadReportStats(serverUrl, apiKey, reportDays); reportDetails = loadReportDetails(serverUrl, apiKey, reportDays); reportError = "" }
+            try { reportStats = loadReportStats(serverUrl, apiKey, reportDays); reportDetails = loadReportDetails(serverUrl, apiKey, reportDays, reportGranularity); reportError = "" }
             catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
+            try { compareSummary = loadReportCompare(serverUrl, apiKey, reportDays); compareError = "" }
+            catch (e: Exception) { compareError = e.message ?: "Period comparison is unavailable" }
             try { eventSummary = loadEventSummary(serverUrl, apiKey, reportDays); eventError = "" }
             catch (e: Exception) { eventError = e.message ?: "Playback events are unavailable" }
             try { alertSummary = loadAlertSummary(serverUrl, apiKey); alertHistory = loadAlertHistory(serverUrl, apiKey); alertError = "" }
@@ -431,7 +461,7 @@ fun AllerfluxApp(context: Context) {
         }
     }
 
-    LaunchedEffect(serverUrl, apiKey, reportDays) {
+    LaunchedEffect(serverUrl, apiKey, reportDays, reportGranularity) {
         if (serverUrl.isNotBlank() && apiKey.isNotBlank()) {
             refresh()
             while (true) {
@@ -605,6 +635,15 @@ fun AllerfluxApp(context: Context) {
                                         label = { Text(when (days) { 7 -> "7D"; 30 -> "30D"; 90 -> "90D"; else -> "1Y" }) })
                                 }
                             }
+                            Text("GROUP BY", color = Muted, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                listOf("day", "week", "month").forEach { group ->
+                                    FilterChip(selected = reportGranularity == group,
+                                        onClick = { reportGranularity = group },
+                                        label = { Text(group.replaceFirstChar { it.uppercase() }) })
+                                }
+                            }
                         }
                     }
                     if (reportError.isNotBlank()) item { InfoCard("REPORT SUMMARY UNAVAILABLE", "Could not load $reportDays-day summary", reportError, "") }
@@ -617,6 +656,25 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Playing samples", reportStats.playing.toString(), "Snapshot count", Modifier.weight(1f))
                     } }
                     item { MetricCard("Paused samples", reportStats.paused.toString(), "Snapshot count", Modifier.fillMaxWidth()) }
+                    item { SectionHeading("Period comparison") }
+                    if (compareError.isNotBlank()) {
+                        item { InfoCard("COMPARISON UNAVAILABLE", "Previous-period comparison unavailable", compareError, "") }
+                    } else {
+                        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricCard("Snapshot change", deltaLabel(compareSummary.snapshots),
+                                "${compareSummary.snapshots.current} now · ${compareSummary.snapshots.previous} prior", Modifier.weight(1f))
+                            MetricCard("Viewer change", deltaLabel(compareSummary.users),
+                                "${compareSummary.users.current} now · ${compareSummary.users.previous} prior", Modifier.weight(1f))
+                        } }
+                        item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MetricCard("Playback starts", deltaLabel(compareSummary.starts),
+                                "${compareSummary.starts.current} now · ${compareSummary.starts.previous} prior", Modifier.weight(1f))
+                            MetricCard("Completions", deltaLabel(compareSummary.completions),
+                                "${compareSummary.completions.current} now · ${compareSummary.completions.previous} prior", Modifier.weight(1f))
+                        } }
+                        item { Text("Comparison uses the immediately preceding period of equal length. Snapshot and webhook event totals remain separate.",
+                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                    }
                     item { SectionHeading("Playback events") }
                     if (eventError.isNotBlank()) {
                         item { InfoCard("EVENT INGESTION UNAVAILABLE", "Playback event data not connected",
@@ -639,7 +697,7 @@ fun AllerfluxApp(context: Context) {
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedButton(onClick = {
-                                    pendingCsv = buildReportCsv(reportDays, reportStats, reportDetails, eventSummary)
+                                    pendingCsv = buildReportCsv(reportDays, reportGranularity, reportStats, reportDetails, eventSummary)
                                     exportMessage = ""
                                     csvLauncher.launch("allerflux-report-${reportDays}d.csv")
                                 }, modifier = Modifier.weight(1f)) {
@@ -649,6 +707,7 @@ fun AllerfluxApp(context: Context) {
                                 }
                                 OutlinedButton(onClick = {
                                     pendingPdfDays = reportDays
+                                    pendingPdfGranularity = reportGranularity
                                     exportMessage = ""
                                     pdfLauncher.launch("allerflux-report-${reportDays}d.pdf")
                                 }, modifier = Modifier.weight(1f)) {
@@ -660,14 +719,14 @@ fun AllerfluxApp(context: Context) {
                             if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 12.sp)
                         }
                     }
-                    item { SectionHeading("Daily observed activity") }
+                    item { SectionHeading("${reportGranularity.replaceFirstChar { it.uppercase() }} observed activity") }
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Daily viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
+                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text("● Viewers", color = Accent, fontSize = 11.sp)
-                                    Text("● Videos", color = Color(0xFFFFB86B), fontSize = 11.sp)
+                                    Text("● Titles", color = Color(0xFFFFB86B), fontSize = 11.sp)
                                 }
                                 if (reportDetails.daily.isEmpty()) {
                                     Text("No observations recorded in this period.", color = Muted, fontSize = 13.sp)
