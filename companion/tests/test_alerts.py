@@ -49,6 +49,24 @@ class AlertStateTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_cooldown_handles_sqlite_naive_timestamp(self):
+        main.change_alert_state(
+            "idle:session-3", "idle_session", "Idle session", "First trigger", True
+        )
+        main.change_alert_state(
+            "idle:session-3", "idle_session", "Idle session cleared", "Recovered", False
+        )
+        retrigger = main.change_alert_state(
+            "idle:session-3", "idle_session", "Idle session", "Triggered again", True
+        )
+        self.assertIsNone(retrigger)
+        db = main.SessionLocal()
+        try:
+            state = db.get(AlertState, "idle:session-3")
+            self.assertTrue(state.is_active)
+        finally:
+            db.close()
+
     def test_inactive_alert_does_not_create_history(self):
         result = main.change_alert_state(
             "idle:session-2", "idle_session", "Idle session cleared", "No alert", False
