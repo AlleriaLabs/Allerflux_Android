@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     allerflux_webhook_key: str = ""
     database_url: str = "sqlite:////data/allerflux.db"
     poll_interval_seconds: int = 20
+    idle_alert_threshold_seconds: int = 1800
+    alert_cooldown_minutes: int = 60
+    alert_webhook_url: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()
