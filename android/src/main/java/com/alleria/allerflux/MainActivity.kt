@@ -122,6 +122,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class HourlyUsersPoint(val hour: String, val onlineUsers: Int, val uniqueUsers: Int)
 private data class Overview(
     val users: String = "—",
     val sessions: String = "—",
@@ -192,6 +193,15 @@ private suspend fun apiGetBytes(base: String, key: String, path: String): ByteAr
         }
         c.inputStream.use { it.readBytes() }
     } finally { c.disconnect() }
+}
+
+private suspend fun loadHourlyUsers(base: String, key: String): List<HourlyUsersPoint> {
+    val root = JSONObject(apiGet(base, key, "/api/v1/analytics/last-24-hours"))
+    val rows = root.optJSONArray("points") ?: JSONArray()
+    return (0 until rows.length()).map { index ->
+        val row = rows.getJSONObject(index)
+        HourlyUsersPoint(row.safeText("hour", ""), row.optInt("online_users"), row.optInt("unique_users"))
+    }
 }
 
 private suspend fun loadOverview(base: String, key: String): Overview {
@@ -430,6 +440,8 @@ fun AllerfluxApp(context: Context) {
     var selectedServerId by remember { mutableStateOf("") }
     var serverNameDraft by remember { mutableStateOf("") }
     var overview by remember { mutableStateOf(Overview()) }
+    var hourlyUsers by remember { mutableStateOf<List<HourlyUsersPoint>>(emptyList()) }
+    var hourlyUsersError by remember { mutableStateOf("") }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
     var library by remember { mutableStateOf(LibraryStats()) }
@@ -567,6 +579,8 @@ fun AllerfluxApp(context: Context) {
                 onlineServerIds = onlineServerIds - selectedServerId
                 error = e.message ?: "Unable to load overview"
             }
+            try { hourlyUsers = loadHourlyUsers(serverUrl, apiKey); hourlyUsersError = "" }
+            catch (e: Exception) { hourlyUsersError = e.message ?: "Unable to load 24-hour user trends" }
             try { sessions = loadSessions(serverUrl, apiKey); activityError = "" }
             catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
             try { history = loadHistory(serverUrl, apiKey); historyError = "" }
@@ -844,6 +858,9 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Playing now", overview.playing, "Currently playing", Modifier.weight(1f))
                         MetricCard("Paused", overview.paused, "Paused sessions", Modifier.weight(1f))
                     } }
+                    item { SectionHeading("User activity · 24 hours") }
+                    item { HourlyTrendCard("User online", "Peak concurrent logged-in users per hour", hourlyUsers, true, hourlyUsersError) }
+                    item { HourlyTrendCard("Today's users", "Unique accounts active in each hour", hourlyUsers, false, hourlyUsersError) }
                     item { InfoCard("COMPANION CONNECTION", overview.message,
                         if (overview.connected) serverUrl else "Configure your companion URL and API key to load live server data.", error) }
                     item { InfoCard("DATA COLLECTION", "Snapshot-based analytics",
@@ -1543,6 +1560,70 @@ private fun SectionHeading(value: String) {
             .background(AccentPurple, RoundedCornerShape(2.dp)))
     }
 }
+@Composable
+private fun HourlyTrendCard(
+    title: String,
+    subtitle: String,
+    points: List<HourlyUsersPoint>,
+    showOnline: Boolean,
+    error: String
+) {
+    val values = points.map { if (showOnline) it.onlineUsers else it.uniqueUsers }
+    val peak = values.maxOrNull() ?: 0
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 10.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text(subtitle, color = Muted, fontSize = 11.sp)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(peak.toString(), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+                Text(if (showOnline) "peak online" else "peak unique users/hour",
+                    color = Muted, fontSize = 10.sp, modifier = Modifier.padding(bottom = 4.dp))
+            }
+            if (error.isNotBlank()) {
+                Text("24-hour history unavailable: $error", color = Color(0xFFFF9A8B), fontSize = 10.sp)
+            } else if (points.none { (if (showOnline) it.onlineUsers else it.uniqueUsers) > 0 }) {
+                Text("Collecting hourly history. The graph will fill as the companion records sessions.",
+                    color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+            }
+            Canvas(Modifier.fillMaxWidth().height(112.dp)) {
+                val left = 5f
+                val right = size.width - 5f
+                val top = 8f
+                val bottom = size.height - 8f
+                val maxValue = (values.maxOrNull() ?: 0).coerceAtLeast(1)
+                for (line in 0..3) {
+                    val y = top + (bottom - top) * line / 3f
+                    drawLine(Border, Offset(left, y), Offset(right, y), strokeWidth = 1f)
+                }
+                if (values.size > 1) {
+                    val stepX = (right - left) / (values.size - 1)
+                    val path = androidx.compose.ui.graphics.Path()
+                    values.forEachIndexed { index, value ->
+                        val x = left + stepX * index
+                        val y = bottom - (bottom - top) * value / maxValue.toFloat()
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, if (showOnline) Accent else AccentPurple,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+                    values.forEachIndexed { index, value ->
+                        val x = left + stepX * index
+                        val y = bottom - (bottom - top) * value / maxValue.toFloat()
+                        drawCircle(if (showOnline) Accent else AccentPurple, radius = 3.2f, center = Offset(x, y))
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(points.firstOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
+                Text("24-hour window · Asia/Manila", color = Muted, fontSize = 9.sp)
+                Text(points.lastOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
+            }
+        }
+    }
+}
+
 @Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
     Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
