@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Body
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
@@ -150,8 +151,6 @@ async def poll_once():
                         f'{data["device_name"] or "an unknown device"} for {data["idle_seconds"]} seconds.')
                     await notify_alert(change_alert_state(alert_key, "idle_session",
                         "Idle Jellyfin session", message, True))
-            if not data["item_id"]:
-                continue
             db.add(SessionSnapshot(
                 jellyfin_session_id=data["session_id"], user_id=data["user_id"],
                 username=data["username"], item_id=data["item_id"],
@@ -466,6 +465,61 @@ async def overview():
         "paused": len(paused), "captured_at": datetime.now(timezone.utc).isoformat(),
         "history_mode": "snapshot_estimates",
     }
+
+@app.get("/api/v1/analytics/last-24-hours", dependencies=[Depends(require_api_key)])
+def analytics_last_24_hours(db: Session = Depends(get_db)):
+    """Hourly 24-hour trend from persisted Jellyfin session observations."""
+    local_zone = ZoneInfo("Asia/Manila")
+    now_local = datetime.now(local_zone)
+    current_hour = now_local.replace(minute=0, second=0, microsecond=0)
+    first_hour = current_hour - timedelta(hours=23)
+    since_utc = first_hour.astimezone(timezone.utc)
+    rows = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= since_utc
+    ).order_by(SessionSnapshot.captured_at.asc())).all()
+
+    buckets = {}
+    for offset in range(24):
+        hour = first_hour + timedelta(hours=offset)
+        key = hour.isoformat()
+        buckets[key] = {
+            "hour": hour.strftime("%H:%M"),
+            "online_users": 0,
+            "unique_users": set(),
+            "_samples": {},
+        }
+
+    for row in rows:
+        captured = row.captured_at
+        if captured.tzinfo is None:
+            captured = captured.replace(tzinfo=timezone.utc)
+        local_time = captured.astimezone(local_zone)
+        hour = local_time.replace(minute=0, second=0, microsecond=0).isoformat()
+        bucket = buckets.get(hour)
+        if bucket is None or not row.user_id:
+            continue
+        bucket["unique_users"].add(row.user_id)
+        sample_key = captured.isoformat()
+        sample_users = bucket["_samples"].setdefault(sample_key, set())
+        sample_users.add(row.user_id)
+        bucket["online_users"] = max(bucket["online_users"], len(sample_users))
+
+    points = []
+    for bucket in buckets.values():
+        points.append({
+            "hour": bucket["hour"],
+            "online_users": bucket["online_users"],
+            "unique_users": len(bucket["unique_users"]),
+        })
+    return {
+        "timezone": "Asia/Manila",
+        "window_hours": 24,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "points": points,
+        "data_points": len(rows),
+        "accuracy_note": "Online users is the peak concurrent distinct users observed in each hour. Unique users counts distinct accounts observed at least once in that hour. Historical values require companion polling; missing observations are not backfilled.",
+    }
+
 
 @app.get("/api/v1/sessions", dependencies=[Depends(require_api_key)])
 async def current_sessions():
