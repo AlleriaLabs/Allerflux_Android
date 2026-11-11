@@ -104,7 +104,11 @@ private suspend fun apiGet(base: String, key: String, path: String): String = wi
         val code = c.responseCode
         val stream = if (code in 200..299) c.inputStream else c.errorStream
         val body = stream.bufferedReader().use { it.readText() }
-        if (code !in 200..299) error("HTTP " + code + ": " + runCatching { JSONObject(body).optString("detail") }.getOrDefault(body))
+        if (code !in 200..299) {
+            val detail = runCatching { JSONObject(body).optString("detail") }.getOrDefault(body)
+            if (code == 404) error("HTTP 404: This endpoint is not available in the installed companion version. Update the Allerflux companion on your server, then retry.")
+            error("HTTP " + code + ": " + detail)
+        }
         body
     } finally { c.disconnect() }
 }
@@ -234,7 +238,7 @@ private suspend fun loadAlertHistory(base: String, key: String): List<AlertRow> 
 }
 
 private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
-    val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=200"))
+    val a = JSONArray(apiGet(base, key, "/api/v1/history?limit=20"))
     return (0 until a.length()).map {
         val j = a.getJSONObject(it)
         HistoryRow(j.optString("user", "Unknown user"), j.optString("item_name", "Unknown title"),
@@ -375,6 +379,7 @@ fun AllerfluxApp(context: Context) {
     var backupMessage by remember { mutableStateOf("") }
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     var reportDays by remember { mutableIntStateOf(30) }
+    var showAllObservations by remember { mutableStateOf(false) }
     var reportGranularity by remember { mutableStateOf("day") }
     var compareSummary by remember { mutableStateOf(CompareSummary()) }
     var compareError by remember { mutableStateOf("") }
@@ -635,7 +640,7 @@ fun AllerfluxApp(context: Context) {
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 listOf(7, 30, 90, 365).forEach { days ->
-                                    FilterChip(selected = reportDays == days, onClick = { reportDays = days },
+                                    FilterChip(selected = reportDays == days, onClick = { reportDays = days; showAllObservations = false },
                                         label = { Text(when (days) { 7 -> "7D"; 30 -> "30D"; 90 -> "90D"; else -> "1Y" }) })
                                 }
                             }
@@ -778,13 +783,31 @@ fun AllerfluxApp(context: Context) {
                     }
                     item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
                         "These are 30-day snapshot estimates, not unique plays, completed titles, or total watch time. One long playback can contribute many observations.", "") }
-                    item { SectionHeading("Recent observations") }
-                    items(minOf(history.size, 30)) { i ->
-                        val h = history[i]
-                        InfoCard(h.title, h.user, h.type + "  •  " + h.state.uppercase(), h.time.replace("T", " ").take(19))
+                    item { Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionHeading("Recent observations")
+                        Spacer(Modifier.weight(1f))
+                        Text("${history.size.coerceAtMost(20)} latest", color = Muted, fontSize = 10.sp)
+                    } }
+                    if (historyError.isNotBlank()) {
+                        item { InfoCard("HISTORY UNAVAILABLE", "Recent observations could not load",
+                            historyError, "Check companion version and API connection in Settings.") }
+                    } else if (history.isEmpty()) {
+                        item { InfoCard("NO HISTORY YET", "Waiting for snapshots",
+                            "History appears after the companion collects session observations.", "") }
+                    } else {
+                        items(history.take(if (showAllObservations) 20 else 5)) { h ->
+                            InfoCard(h.title, h.user, h.type + "  •  " + h.state.uppercase(),
+                                h.time.replace("T", " ").take(19))
+                        }
+                        if (history.size > 5) {
+                            item {
+                                OutlinedButton(onClick = { showAllObservations = !showAllObservations },
+                                    modifier = Modifier.fillMaxWidth()) {
+                                    Text(if (showAllObservations) "Show fewer observations" else "Show up to 20 observations")
+                                }
+                            }
+                        }
                     }
-                    if (history.isEmpty() && historyError.isBlank()) item { InfoCard("NO HISTORY YET", "Waiting for snapshots",
-                        "History will appear after the companion has collected session observations.", "") }
                 }
 
                 if (selected == "Top Viewers") {
