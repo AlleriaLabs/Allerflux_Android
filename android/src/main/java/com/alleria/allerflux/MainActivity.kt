@@ -52,6 +52,8 @@ private val Accent = Color(0xFF39D5F2)
 private val AccentPurple = Color(0xFF9B72FF)
 private val Muted = Color(0xFF9AA3B5)
 private val Border = Color(0xFF242833)
+private val BrandRed = Color(0xFFFF4057)
+private val StatusGreen = Color(0xFF42D6A4)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -456,7 +458,8 @@ fun AllerfluxApp(context: Context) {
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
     var historyError by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf("Overview") }
+    var selected by remember { mutableStateOf("Servers") }
+    var onlineServerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var urlDraft by remember { mutableStateOf("") }
     var keyDraft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -519,6 +522,14 @@ fun AllerfluxApp(context: Context) {
             urlDraft = active.url
             keyDraft = active.apiKey
         }
+        val online = mutableSetOf<String>()
+        savedServers.forEach { server ->
+            val connected = withContext(Dispatchers.IO) {
+                runCatching { loadOverview(server.url, server.apiKey).connected }.getOrDefault(false)
+            }
+            if (connected) online.add(server.id)
+        }
+        onlineServerIds = online
     }
 
     fun refresh() {
@@ -565,7 +576,7 @@ fun AllerfluxApp(context: Context) {
     MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = AccentPurple,
         secondary = Accent, onBackground = Color.White, onSurface = Color.White)) {
         Scaffold(containerColor = Ink, floatingActionButton = {
-            if (selected == "Settings") {
+            if (selected == "Servers" || selected == "Settings") {
                 ExtendedFloatingActionButton(
                     onClick = {
                         selectedServerId = ""
@@ -573,15 +584,17 @@ fun AllerfluxApp(context: Context) {
                         urlDraft = ""
                         keyDraft = ""
                         error = ""
+                        selected = "Settings"
                     },
-                    containerColor = AccentPurple,
+                    containerColor = Color(0xFF1A2230),
                     contentColor = Color.White,
                     icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                    text = { Text("Add Server") }
+                    text = { Text("Add server", fontWeight = FontWeight.Medium) },
+                    shape = RoundedCornerShape(22.dp)
                 )
             }
         }, bottomBar = {
-            Column(Modifier.fillMaxWidth().background(Ink)) {
+            if (selected != "Servers") Column(Modifier.fillMaxWidth().background(Ink)) {
                 Divider(color = Border.copy(alpha = 0.85f), thickness = 1.dp)
                 Row(Modifier.fillMaxWidth().navigationBarsPadding()
                     .padding(horizontal = 7.dp, vertical = 8.dp),
@@ -617,46 +630,138 @@ fun AllerfluxApp(context: Context) {
             }
         }) { padding ->
             LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (logoBitmap != null) {
-                            Image(bitmap = logoBitmap, contentDescription = "Allerflux orbital logo",
+                    if (selected == "Servers") {
+                        Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 9.dp, bottom = 22.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Allerflux logo",
+                                modifier = Modifier.size(54.dp))
+                            else Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux", tint = Accent,
+                                modifier = Modifier.size(48.dp))
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("ALLERFLUX", color = Color.White, fontSize = 23.sp,
+                                    fontWeight = FontWeight.Medium, letterSpacing = 2.8.sp)
+                                Text("ALLERIA LABS", color = Muted, fontSize = 11.sp, letterSpacing = 2.8.sp)
+                            }
+                            Surface(color = Color(0xFF1A2230), shape = RoundedCornerShape(22.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                                modifier = Modifier.size(58.dp).clickable { selected = "Settings" }) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Rounded.Settings, contentDescription = "Settings",
+                                        tint = Muted, modifier = Modifier.size(28.dp))
+                                }
+                            }
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Allerflux orbital logo",
                                 modifier = Modifier.size(34.dp))
-                        } else {
-                            Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux",
-                                tint = Accent, modifier = Modifier.size(30.dp))
+                            else Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux", tint = Accent,
+                                modifier = Modifier.size(30.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text("Allerflux", color = Color.White, fontSize = 18.sp,
+                                    fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp)
+                                Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp,
+                                    letterSpacing = 0.85.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Box(Modifier.size(7.dp).background(if (overview.connected) StatusGreen else Color(0xFFFFB86B), CircleShape))
+                                Text(if (overview.connected) "ONLINE" else "SETUP",
+                                    color = if (overview.connected) StatusGreen else Color(0xFFFFB86B),
+                                    fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                            IconButton(onClick = { refresh() }, modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.Refresh, "Refresh", tint = Muted, modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(onClick = { selected = "Settings" }, modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.Settings, "Settings", tint = Muted, modifier = Modifier.size(20.dp))
+                            }
                         }
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                            Text("Allerflux", color = Color.White, fontSize = 18.sp,
-                                fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp)
-                            Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp,
-                                letterSpacing = 0.85.sp)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                            Box(Modifier.size(7.dp).background(
-                                if (overview.connected) Accent else Color(0xFFFFB86B), CircleShape))
-                            Text(if (overview.connected) "ONLINE" else "SETUP",
-                                color = if (overview.connected) Accent else Color(0xFFFFB86B),
-                                fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(Modifier.width(9.dp))
-                        IconButton(onClick = { refresh() }, modifier = Modifier.size(38.dp)) {
-                            Icon(Icons.Rounded.Refresh, "Refresh", tint = Muted,
-                                modifier = Modifier.size(20.dp))
-                        }
-                        IconButton(onClick = { selected = "Settings" }, modifier = Modifier.size(38.dp)) {
-                            Icon(Icons.Rounded.Settings, "Settings", tint = Muted,
-                                modifier = Modifier.size(20.dp))
+                        Divider(color = Border.copy(alpha = 0.75f), thickness = 1.dp)
+                    }
+                }
+                if (selected == "Servers") {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("ALLERIA LABS  ·  INFRASTRUCTURE", color = BrandRed, fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                            Text("Servers", color = Color.White, fontSize = 31.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp)
+                            Text("Your connected infrastructure at a glance", color = Muted,
+                                fontSize = 14.sp, letterSpacing = 0.2.sp)
                         }
                     }
-                    Divider(color = Border.copy(alpha = 0.75f), thickness = 1.dp)
+                    item {
+                        val total = servers.size
+                        val online = onlineServerIds.size.coerceAtMost(total)
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                            ServerStatCard(total.toString(), "Servers", Modifier.weight(1f))
+                            ServerStatCard(online.toString(), "Online", Modifier.weight(1f), StatusGreen)
+                            ServerStatCard((total - online).toString(), "Offline", Modifier.weight(1f))
+                            ServerStatCard(if (total == 0) "—" else "${online * 100 / total}%", "Availability", Modifier.weight(1.25f))
+                        }
+                    }
+                    if (servers.isEmpty()) {
+                        item {
+                            Surface(color = Panel, shape = RoundedCornerShape(24.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                                modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                    Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(34.dp))
+                                    Text("No servers registered", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("Add your first Allerflux companion connection to start monitoring your Jellyfin server.",
+                                        color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                                    TextButton(onClick = { selected = "Settings" }) { Text("Configure first server", color = BrandRed) }
+                                }
+                            }
+                        }
+                    }
+                    items(servers) { server ->
+                        val online = server.id in onlineServerIds
+                        Surface(color = Color(0xFF141720), shape = RoundedCornerShape(24.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, Border),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedServerId = server.id
+                                serverNameDraft = server.name
+                                serverUrl = server.url
+                                apiKey = server.apiKey
+                                urlDraft = server.url
+                                keyDraft = server.apiKey
+                                selected = "Overview"
+                                error = ""
+                                refresh()
+                            }) {
+                            Row(Modifier.padding(horizontal = 19.dp, vertical = 21.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Surface(color = Color(0xFF1C2433), shape = RoundedCornerShape(19.dp), modifier = Modifier.size(66.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(29.dp))
+                                    }
+                                }
+                                Spacer(Modifier.width(14.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(server.name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                                    Text(android.net.Uri.parse(server.url).host ?: server.url,
+                                        color = Muted, fontSize = 12.sp, maxLines = 1)
+                                    Text("HOME", color = BrandRed, fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
+                                }
+                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Box(Modifier.size(9.dp).background(if (online) StatusGreen else Color(0xFFFF6B78), CircleShape))
+                                        Text(if (online) "Online" else "Offline",
+                                            color = if (online) StatusGreen else Color(0xFFFF6B78), fontSize = 13.sp)
+                                    }
+                                    Icon(Icons.Rounded.ExpandMore, contentDescription = "Open server",
+                                        tint = Muted, modifier = Modifier.size(25.dp))
+                                }
+                            }
+                        }
+                    }
                 }
                 if (selected == "Overview") {
                     item {
@@ -685,6 +790,7 @@ fun AllerfluxApp(context: Context) {
                         }
                     }
                 }
+                if (selected != "Servers") {
                 item { SectionHeading(when (selected) {
                     "Overview" -> "Server overview"
                     "Activity" -> "Live activity"
@@ -697,6 +803,8 @@ fun AllerfluxApp(context: Context) {
                     "Settings" -> "Connection & preferences"
                     else -> "About Allerflux"
                 }) }
+
+                }
 
                 if (selected == "Overview") {
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1386,6 +1494,17 @@ private fun InfoCard(title: String, heading: String, detail: String, extra: Stri
         }
     }
 }
+@Composable
+private fun ServerStatCard(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Color.White) {
+    Surface(modifier = modifier.height(82.dp), color = Color(0xFF141720), shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+        Column(Modifier.padding(horizontal = 11.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(value, color = valueColor, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = Muted, fontSize = 10.sp, maxLines = 1)
+        }
+    }
+}
+
 @Composable
 private fun SectionHeading(value: String) {
     Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
