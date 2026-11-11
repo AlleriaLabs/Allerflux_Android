@@ -1,6 +1,11 @@
 package com.alleria.allerflux
 
 import android.content.Context
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.pdf.PdfDocument
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,6 +36,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.io.OutputStream
 
 private val Ink = Color(0xFF080D16)
 private val Panel = Color(0xFF111B29)
@@ -171,6 +177,108 @@ private suspend fun loadHistory(base: String, key: String): List<HistoryRow> {
     }
 }
 
+
+private fun csvCell(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
+
+private fun buildReportCsv(days: Int, stats: ReportStats, details: ReportDetails, events: EventSummary): String = buildString {
+    appendLine("Allerflux viewing report")
+    appendLine("Period days,$days")
+    appendLine("Snapshot observations,${stats.snapshots}")
+    appendLine("Observed users,${stats.users}")
+    appendLine("Observed titles,${stats.titles}")
+    appendLine("Playing samples,${stats.playing}")
+    appendLine("Paused samples,${stats.paused}")
+    appendLine("Playback start events,${events.starts}")
+    appendLine("Playback stop events,${events.stops}")
+    appendLine("Explicit completed stops,${events.completed}")
+    appendLine("Distinct event viewers,${events.users}")
+    appendLine()
+    appendLine("Daily observations")
+    appendLine("Date,Snapshots,Distinct viewers,Distinct titles")
+    details.daily.forEach { appendLine(listOf(it.date, it.snapshots, it.users, it.titles).joinToString(",")) }
+    appendLine()
+    appendLine("Top observed titles")
+    appendLine("Title,Media type,Observed samples,Distinct viewers")
+    details.topTitles.forEach { appendLine(listOf(csvCell(it.name), csvCell(it.type), it.samples, it.users).joinToString(",")) }
+    appendLine()
+    appendLine("Top observed viewers")
+    appendLine("Username,Observed samples,Distinct titles")
+    details.topUsers.forEach { appendLine(listOf(csvCell(it.name), it.samples, it.titles).joinToString(",")) }
+    appendLine()
+    appendLine("Accuracy: snapshot counts are periodic observations, not exact plays or watch duration. Event counts come from received Jellyfin webhook notifications; completion is counted only when explicitly supplied.")
+}
+
+private fun buildReportPdf(output: OutputStream, days: Int, stats: ReportStats,
+    details: ReportDetails, events: EventSummary) {
+    val lines = mutableListOf(
+        "Reporting period: $days days",
+        "Snapshot observations: ${stats.snapshots}",
+        "Observed users: ${stats.users}",
+        "Observed titles: ${stats.titles}",
+        "Playing samples: ${stats.playing}",
+        "Paused samples: ${stats.paused}",
+        "Playback starts: ${events.starts}",
+        "Playback stops: ${events.stops}",
+        "Explicit completions: ${events.completed}",
+        "",
+        "DAILY OBSERVATIONS"
+    )
+    details.daily.takeLast(14).forEach { lines.add("${it.date}  ·  ${it.users} viewers  ·  ${it.titles} titles  ·  ${it.snapshots} samples") }
+    lines.add("")
+    lines.add("TOP OBSERVED TITLES")
+    details.topTitles.take(8).forEachIndexed { index, item -> lines.add("${index + 1}. ${item.name}  ·  ${item.samples} samples  ·  ${item.users} viewers") }
+    lines.add("")
+    lines.add("TOP OBSERVED VIEWERS")
+    details.topUsers.take(8).forEachIndexed { index, item -> lines.add("${index + 1}. ${item.name}  ·  ${item.samples} samples  ·  ${item.titles} titles") }
+    lines.add("")
+    lines.add("Data note: snapshots are periodic observations, not exact plays or watch duration.")
+    lines.add("Event counts are received Jellyfin webhook notifications. Stops are not automatically completions.")
+    val document = PdfDocument()
+    val chunks = lines.chunked(29)
+    chunks.forEachIndexed { pageIndex, chunk ->
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageIndex + 1).create()
+        val page = document.startPage(pageInfo)
+        val canvas = page.canvas
+        val header = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(10, 20, 32)
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(0f, 0f, 595f, 112f, header)
+        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val metaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(112, 225, 207)
+            textSize = 11f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+        }
+        val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.rgb(30, 42, 56)
+            textSize = 12f
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+        canvas.drawText("ALLERFLUX", 40f, 48f, titlePaint)
+        canvas.drawText("MEDIA SERVER INTELLIGENCE  ·  $days-DAY REPORT", 40f, 76f, metaPaint)
+        var y = 145f
+        chunk.forEach { line ->
+            if (line.isNotBlank() && (line.startsWith("DAILY") || line.startsWith("TOP "))) {
+                bodyPaint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
+                bodyPaint.textSize = 13f
+            } else {
+                bodyPaint.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+                bodyPaint.textSize = 11.5f
+            }
+            canvas.drawText(line.take(92), 40f, y, bodyPaint)
+            y += 21f
+        }
+        document.finishPage(page)
+    }
+    document.writeTo(output)
+    document.close()
+}
+
 @Composable
 fun AllerfluxApp(context: Context) {
     val prefs = remember { context.getSharedPreferences("allerflux", Context.MODE_PRIVATE) }
@@ -187,6 +295,9 @@ fun AllerfluxApp(context: Context) {
     var eventError by remember { mutableStateOf("") }
     var reportDays by remember { mutableIntStateOf(30) }
     var reportError by remember { mutableStateOf("") }
+    var exportMessage by remember { mutableStateOf("") }
+    var pendingCsv by remember { mutableStateOf("") }
+    var pendingPdfDays by remember { mutableIntStateOf(30) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
@@ -195,6 +306,34 @@ fun AllerfluxApp(context: Context) {
     var urlDraft by remember { mutableStateOf(serverUrl) }
     var keyDraft by remember { mutableStateOf(apiKey) }
     val scope = rememberCoroutineScope()
+    val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        if (uri != null) {
+            val content = pendingCsv
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(content.toByteArray(Charsets.UTF_8)) }
+                            ?: error("Unable to open destination")
+                    }
+                }
+                exportMessage = if (result.isSuccess) "CSV report saved." else "CSV export failed: ${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
+    val pdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri != null) {
+            val days = pendingPdfDays
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { buildReportPdf(it, days, reportStats, reportDetails, eventSummary) }
+                            ?: error("Unable to open destination")
+                    }
+                }
+                exportMessage = if (result.isSuccess) "PDF report saved." else "PDF export failed: ${result.exceptionOrNull()?.message}"
+            }
+        }
+    }
 
     fun refresh() {
         if (serverUrl.isBlank() || apiKey.isBlank()) {
@@ -421,6 +560,33 @@ fun AllerfluxApp(context: Context) {
                         } }
                         item { Text("Event-based counts are separate from periodic snapshot estimates. A stop is not automatically a completion, and watch duration is not inferred.",
                             color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("EXPORT REPORT", color = Muted, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedButton(onClick = {
+                                    pendingCsv = buildReportCsv(reportDays, reportStats, reportDetails, eventSummary)
+                                    exportMessage = ""
+                                    csvLauncher.launch("allerflux-report-${reportDays}d.csv")
+                                }, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.TableView, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Export CSV")
+                                }
+                                OutlinedButton(onClick = {
+                                    pendingPdfDays = reportDays
+                                    exportMessage = ""
+                                    pdfLauncher.launch("allerflux-report-${reportDays}d.pdf")
+                                }, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Export PDF")
+                                }
+                            }
+                            if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 12.sp)
+                        }
                     }
                     item { SectionHeading("Daily observed activity") }
                     item {
