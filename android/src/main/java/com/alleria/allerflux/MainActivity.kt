@@ -686,7 +686,6 @@ fun AllerfluxApp(context: Context) {
                                     reportFromDate = ""
                                     reportToDate = ""
                                     reportTimezone = "Asia/Manila"
-                                    refresh()
                                 }) { Text("Clear custom range", color = Accent) }
                                 Spacer(Modifier.weight(1f))
                                 Button(onClick = { refresh() },
