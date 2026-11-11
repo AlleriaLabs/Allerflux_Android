@@ -375,6 +375,7 @@ fun AllerfluxApp(context: Context) {
     var backupMessage by remember { mutableStateOf("") }
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     var reportDays by remember { mutableIntStateOf(30) }
+    var showAllObservations by remember { mutableStateOf(false) }
     var reportGranularity by remember { mutableStateOf("day") }
     var compareSummary by remember { mutableStateOf(CompareSummary()) }
     var compareError by remember { mutableStateOf("") }
@@ -800,9 +801,19 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
                         "These are 30-day snapshot estimates, not unique plays, completed titles, or total watch time. One long playback can contribute many observations.", "") }
                     item { SectionHeading("Recent observations") }
-                    items(minOf(history.size, 30)) { i ->
+                    items(minOf(history.size, if (showAllObservations) 20 else 5)) { i ->
                         val h = history[i]
                         InfoCard(h.title, h.user, h.type + "  •  " + h.state.uppercase(), h.time.replace("T", " ").take(19))
+                    }
+                    if (history.size > 5) {
+                        item {
+                            OutlinedButton(
+                                onClick = { showAllObservations = !showAllObservations },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (showAllObservations) "Show fewer observations" else "Show up to 20 observations")
+                            }
+                        }
                     }
                     if (history.isEmpty() && historyError.isBlank()) item { InfoCard("NO HISTORY YET", "Waiting for snapshots",
                         "History will appear after the companion has collected session observations.", "") }
