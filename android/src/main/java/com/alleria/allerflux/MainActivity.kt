@@ -422,6 +422,9 @@ fun AllerfluxApp(context: Context) {
     // Keystore entry must never prevent the dashboard from rendering.
     var serverUrl by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
+    var servers by remember { mutableStateOf<List<SavedServer>>(emptyList()) }
+    var selectedServerId by remember { mutableStateOf("") }
+    var serverNameDraft by remember { mutableStateOf("") }
     var overview by remember { mutableStateOf(Overview()) }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
@@ -502,14 +505,19 @@ fun AllerfluxApp(context: Context) {
     }
 
     LaunchedEffect(Unit) {
-        val saved = withContext(Dispatchers.IO) {
-            runCatching { SecurePreferences(context.applicationContext).load() }
-                .getOrDefault("" to "")
+        val savedServers = withContext(Dispatchers.IO) {
+            runCatching { SecurePreferences(context.applicationContext).loadServers() }.getOrDefault(emptyList())
         }
-        serverUrl = saved.first
-        apiKey = saved.second
-        urlDraft = saved.first
-        keyDraft = saved.second
+        servers = savedServers
+        val active = savedServers.firstOrNull()
+        if (active != null) {
+            selectedServerId = active.id
+            serverNameDraft = active.name
+            serverUrl = active.url
+            apiKey = active.apiKey
+            urlDraft = active.url
+            keyDraft = active.apiKey
+        }
     }
 
     fun refresh() {
@@ -555,7 +563,23 @@ fun AllerfluxApp(context: Context) {
 
     MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = AccentPurple,
         secondary = Accent, onBackground = Color.White, onSurface = Color.White)) {
-        Scaffold(containerColor = Ink, bottomBar = {
+        Scaffold(containerColor = Ink, floatingActionButton = {
+            if (selected == "Settings") {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        selectedServerId = ""
+                        serverNameDraft = ""
+                        urlDraft = ""
+                        keyDraft = ""
+                        error = ""
+                    },
+                    containerColor = AccentPurple,
+                    contentColor = Color.White,
+                    icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                    text = { Text("Add Server") }
+                )
+            }
+        }, bottomBar = {
             Surface(color = Panel, shadowElevation = 18.dp,
                 border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                 modifier = Modifier.fillMaxWidth()) {
