@@ -11,11 +11,14 @@ from starlette.background import BackgroundTask
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, delete, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.orm import Session\nfrom pydantic import BaseModel, Field\nfrom uuid import uuid4
+from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
+from uuid import uuid4
 from .config import settings
 from .database import engine, SessionLocal, get_db
 from .migrations import run_migrations
-from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent, JellyfinServer\nfrom .server_security import encrypt_secret, decrypt_secret
+from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent, JellyfinServer
+from .server_security import encrypt_secret, decrypt_secret
 from .security import require_api_key, require_webhook_key
 from .events import normalize_playback_event
 from .jellyfin import JellyfinClient
@@ -290,7 +293,8 @@ async def test_server(server_id: str, db: Session = Depends(get_db)):
     except Exception as exc:
         return {"connected": False, "error": type(exc).__name__, "id": row.id}
 
-\n@app.get("/health")
+
+@app.get("/health")
 async def health():
     return {"status": "ok", "service": "allerflux-companion"}
 
