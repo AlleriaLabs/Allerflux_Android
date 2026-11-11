@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from .database import Base\nfrom .models import JellyfinServer
+from .database import Base
+from .models import JellyfinServer
 
 
 def _initial_schema(engine: Engine) -> None:
