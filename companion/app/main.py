@@ -28,6 +28,14 @@ poll_status = {"last_attempt_at": None, "last_success_at": None, "last_error_typ
 
 def reporting_window(days: int, from_date: date | None, to_date: date | None, timezone_name: str):
     """Return a validated local-date range and its UTC half-open boundaries."""
+    # FastAPI Query defaults are parameter descriptors when endpoints are
+    # invoked directly by unit tests; normalize those to their API defaults.
+    if not isinstance(from_date, date):
+        from_date = None
+    if not isinstance(to_date, date):
+        to_date = None
+    if not isinstance(timezone_name, str):
+        timezone_name = "UTC"
     try:
         report_tz = ZoneInfo(timezone_name)
     except (ZoneInfoNotFoundError, ValueError):
@@ -490,7 +498,7 @@ def reports_summary(
 
     periods = []
     cursor = bucket_start(first_day)
-    last_period = bucket_start(today)
+    last_period = bucket_start(last_day)
     while cursor <= last_period:
         key = cursor.isoformat()
         bucket = grouped.get(key, {
