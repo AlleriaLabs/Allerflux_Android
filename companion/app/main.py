@@ -1,13 +1,15 @@
 import asyncio, json
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .config import settings
 from .database import Base, engine, SessionLocal, get_db
-from .models import SessionSnapshot
-from .security import require_api_key
+from .models import SessionSnapshot, PlaybackEvent
+from .security import require_api_key, require_webhook_key
+from .events import normalize_playback_event
 from .jellyfin import JellyfinClient
 
 client = JellyfinClient()
@@ -102,6 +104,80 @@ app = FastAPI(title="Allerflux Companion API", version="0.2.0", lifespan=lifespa
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "allerflux-companion"}
+
+@app.post("/api/v1/webhooks/jellyfin", dependencies=[Depends(require_webhook_key)])
+async def jellyfin_webhook(request: Request, db: Session = Depends(get_db)):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Webhook body must be valid JSON")
+    try:
+        event = normalize_playback_event(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    existing = db.scalar(select(PlaybackEvent).where(PlaybackEvent.event_key == event["event_key"]))
+    if existing:
+        return {"accepted": True, "duplicate": True, "event_type": existing.event_type}
+
+    record = PlaybackEvent(**event)
+    db.add(record)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(PlaybackEvent).where(PlaybackEvent.event_key == event["event_key"]))
+        if existing:
+            return {"accepted": True, "duplicate": True, "event_type": existing.event_type}
+        raise HTTPException(status_code=500, detail="Unable to persist playback event")
+    return {"accepted": True, "duplicate": False, "event_type": record.event_type}
+
+
+@app.get("/api/v1/events/summary", dependencies=[Depends(require_api_key)])
+def playback_events_summary(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+):
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = db.scalars(select(PlaybackEvent).where(PlaybackEvent.occurred_at >= since)).all()
+    starts = [row for row in rows if row.event_type == "PlaybackStart"]
+    stops = [row for row in rows if row.event_type == "PlaybackStop"]
+    completions = [row for row in stops if row.played_to_completion is True]
+    return {
+        "days": days,
+        "event_count": len(rows),
+        "playback_starts": len(starts),
+        "playback_stops": len(stops),
+        "completed_stops": len(completions),
+        "distinct_users": len({row.user_id for row in rows}),
+        "distinct_titles": len({row.item_id for row in rows}),
+        "source": "jellyfin_webhook_events",
+        "accuracy_note": "Counts are based on received Jellyfin webhook events. Completion is reported only when the webhook explicitly supplies PlayedToCompletion=true. Watch duration is not inferred.",
+    }
+
+
+@app.get("/api/v1/events/recent", dependencies=[Depends(require_api_key)])
+def recent_playback_events(
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(select(PlaybackEvent).order_by(PlaybackEvent.occurred_at.desc()).limit(limit)).all()
+    return [{
+        "event_type": row.event_type,
+        "occurred_at": row.occurred_at.isoformat(),
+        "user_id": row.user_id,
+        "username": row.username,
+        "item_id": row.item_id,
+        "item_name": row.item_name,
+        "media_type": row.media_type,
+        "position_ticks": row.position_ticks,
+        "runtime_ticks": row.runtime_ticks,
+        "played_to_completion": row.played_to_completion,
+        "play_method": row.play_method,
+        "device_name": row.device_name,
+        "client_name": row.client_name,
+        "source": "jellyfin_webhook_event",
+    } for row in rows]
 
 @app.get("/api/v1/overview", dependencies=[Depends(require_api_key)])
 async def overview():
