@@ -375,6 +375,7 @@ fun AllerfluxApp(context: Context) {
     var backupMessage by remember { mutableStateOf("") }
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     var reportDays by remember { mutableIntStateOf(30) }
+    var showAllObservations by remember { mutableStateOf(false) }
     var reportGranularity by remember { mutableStateOf("day") }
     var compareSummary by remember { mutableStateOf(CompareSummary()) }
     var compareError by remember { mutableStateOf("") }
@@ -491,7 +492,8 @@ fun AllerfluxApp(context: Context) {
             }
         }) { padding ->
             LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
-                contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item {
                     Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
@@ -596,15 +598,35 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Activity") {
+                    val uniqueUsers = sessions.map { it.user.trim().lowercase() }.distinct().size
+                    val activeSessions = sessions.filter { it.state.lowercase() in listOf("playing", "paused") }
+                    val idleSessions = sessions.filter { it.state.lowercase() !in listOf("playing", "paused") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MetricCard("Live sessions", sessions.size.toString(), "Current Jellyfin sessions", Modifier.weight(1f))
-                        MetricCard("Playing", sessions.count { it.state == "playing" }.toString(), "Active playback", Modifier.weight(1f))
+                        MetricCard("Connections", sessions.size.toString(), "Individual Jellyfin sessions", Modifier.weight(1f))
+                        MetricCard("Unique users", uniqueUsers.toString(), "Distinct Jellyfin accounts", Modifier.weight(1f))
+                    } }
+                    item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MetricCard("Playing", activeSessions.count { it.state.lowercase() == "playing" }.toString(),
+                            "Active playback", Modifier.weight(1f))
+                        MetricCard("Paused", activeSessions.count { it.state.lowercase() == "paused" }.toString(),
+                            "Paused sessions", Modifier.weight(1f))
                     } }
                     if (activityError.isNotBlank()) item { InfoCard("ACTIVITY UNAVAILABLE", "Could not load live sessions", activityError, "") }
-                    else if (sessions.isEmpty()) item { InfoCard("NO ACTIVE SESSIONS", "Nothing is streaming right now",
-                        "Current Jellyfin sessions will appear here when users start playback.", "") }
-                    else itemsIndexed(sessions) { _, session ->
-                        SessionCard(session)
+                    else if (sessions.isEmpty()) item { InfoCard("NO CONNECTIONS", "No Jellyfin sessions found",
+                        "Connected devices will appear here when Jellyfin reports a session.", "") }
+                    else {
+                        if (activeSessions.isNotEmpty()) {
+                            item { SectionHeading("Active playback") }
+                            val activeGroups = activeSessions.groupBy { it.user.trim().lowercase() }
+                            items(activeGroups.values.toList()) { group -> AccountSessionsCard(group) }
+                        }
+                        if (idleSessions.isNotEmpty()) {
+                            item { SectionHeading("Idle connections") }
+                            val idleGroups = idleSessions.groupBy { it.user.trim().lowercase() }
+                            items(idleGroups.values.toList()) { group -> AccountSessionsCard(group) }
+                            item { Text("Idle connections are still being reported by Jellyfin. They are not counted as active playback.",
+                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                        }
                     }
                 }
 
@@ -779,9 +801,19 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("REPORTING ACCURACY", "Periodic observations only",
                         "These are 30-day snapshot estimates, not unique plays, completed titles, or total watch time. One long playback can contribute many observations.", "") }
                     item { SectionHeading("Recent observations") }
-                    items(minOf(history.size, 30)) { i ->
+                    items(minOf(history.size, if (showAllObservations) 20 else 5)) { i ->
                         val h = history[i]
                         InfoCard(h.title, h.user, h.type + "  •  " + h.state.uppercase(), h.time.replace("T", " ").take(19))
+                    }
+                    if (history.size > 5) {
+                        item {
+                            OutlinedButton(
+                                onClick = { showAllObservations = !showAllObservations },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (showAllObservations) "Show fewer observations" else "Show up to 20 observations")
+                            }
+                        }
                     }
                     if (history.isEmpty() && historyError.isBlank()) item { InfoCard("NO HISTORY YET", "Waiting for snapshots",
                         "History will appear after the companion has collected session observations.", "") }
@@ -998,6 +1030,50 @@ private fun MoreDestination(title: String, subtitle: String, detail: String,
     }
 }
 
+
+@Composable
+private fun AccountSessionsCard(sessions: List<SessionRow>) {
+    if (sessions.isEmpty()) return
+    val user = sessions.first().user
+    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(user, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(sessions.size.toString() + if (sessions.size == 1) " connection" else " connections",
+                        color = Muted, fontSize = 11.sp)
+                }
+                val playing = sessions.count { it.state.equals("playing", true) }
+                val paused = sessions.count { it.state.equals("paused", true) }
+                Text(when { playing > 0 -> playing.toString() + " PLAYING"; paused > 0 -> paused.toString() + " PAUSED"; else -> "IDLE" },
+                    color = if (playing > 0) Accent else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+            sessions.forEachIndexed { index, session ->
+                if (index > 0) HorizontalDivider(color = Border)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(session.device, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f))
+                        Text(session.state.uppercase(), color = when (session.state.lowercase()) {
+                            "playing" -> Accent
+                            "paused" -> Color(0xFFFFC078)
+                            else -> Muted
+                        }, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Text(session.client + if (session.version != "Version unavailable") " · " + session.version else "",
+                        color = Muted, fontSize = 10.sp)
+                    Text(if (session.state.equals("playing", true) || session.state.equals("paused", true))
+                        session.title else "No media currently playing", color = Color.White, fontSize = 12.sp)
+                    Text("Last activity: " + session.lastActivity +
+                        (session.idleSeconds?.let { " · Idle " + formatDuration(it) } ?: ""),
+                        color = Muted, fontSize = 10.sp)
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun SessionCard(session: SessionRow) {
