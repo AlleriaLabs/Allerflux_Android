@@ -60,8 +60,11 @@ class SecurePreferences(context: Context) {
         val storedUrl = secure.getString(KEY_SERVER_URL, null)
         val storedKey = secure.getString(KEY_API_KEY, null)
         if (storedUrl != null || storedKey != null) {
-            return runCatching { decrypt(storedUrl) to decrypt(storedKey) }
-                .getOrDefault("" to "")
+            return runCatching {
+                val values = decrypt(storedUrl) to decrypt(storedKey)
+                legacy.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).apply()
+                values
+            }.getOrDefault("" to "")
         }
 
         val oldUrl = legacy.getString(KEY_SERVER_URL, "") ?: ""
