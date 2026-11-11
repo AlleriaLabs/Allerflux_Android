@@ -8,7 +8,7 @@ Jellyfin's `/Sessions` endpoint describes sessions that exist now. Allerflux rec
 
 Snapshots do not reliably establish exact playback starts, stop times, watch duration, completion, or unique plays. A single long playback may contribute many snapshots. The app labels these as observations. Top-title and top-user rankings are likewise sample-based: longer sessions and shorter polling intervals can produce more samples.
 
-`GET /api/v1/reports/compare?days=30` compares the selected period with the immediately preceding period of equal length. Snapshot metrics and webhook event metrics are returned separately. Reports also accept an inclusive custom local-date range with `from_date=YYYY-MM-DD&to_date=YYYY-MM-DD&timezone=Asia/Manila`. Both dates must be supplied together; the timezone must be a valid IANA timezone. The companion converts local calendar boundaries to UTC before querying. Preset `days` filters remain available when custom dates are omitted.
+`GET /api/v1/reports/compare?days=30` compares the selected period with the immediately preceding period of equal length. For custom ranges, the preceding window uses the same number of local calendar days and timezone, including across daylight-saving transitions. Snapshot metrics and webhook event metrics are returned separately. Reports also accept an inclusive custom local-date range with `from_date=YYYY-MM-DD&to_date=YYYY-MM-DD&timezone=Asia/Manila`. Both dates must be supplied together; the timezone must be a valid IANA timezone. The companion converts local calendar boundaries to UTC before querying. Preset `days` filters remain available when custom dates are omitted.
 
 ## Event-based playback analytics
 
@@ -30,7 +30,9 @@ All endpoints except `/health` require the `X-Allerflux-Key` header.
 - `GET /api/v1/sessions` — current Jellyfin sessions and playback state.
 - `GET /api/v1/library` — Jellyfin movie, series, episode, song, album, artist, and box-set counts.
 - `GET /api/v1/history?limit=200` — recent stored snapshots.
-- `GET /api/v1/reports/summary?days=30&group_by=day|week|month` — observed snapshot, user, title, playing, and paused counts with a continuous grouped series (zero-filled buckets); also accepts custom local dates and an IANA timezone.
+- `GET /api/v1/reports/summary?days=30&group_by=day|week|month`
+
+For a custom inclusive local-date range, use `from_date=YYYY-MM-DD&to_date=YYYY-MM-DD&timezone=Asia/Manila` instead of `days`. The timezone must be a valid IANA timezone. The same range parameters are supported by top-title, top-user, event-summary and comparison endpoints. Custom ranges are limited to 10 years. — observed snapshot, user, title, playing, and paused counts with a continuous grouped series (zero-filled buckets); also accepts custom local dates and an IANA timezone.
 - `GET /api/v1/reports/top-titles?days=30&limit=10` — titles ranked by observed snapshot count, with observed users and playing/paused samples; accepts the same date/timezone filters.
 - `GET /api/v1/reports/top-users?days=30&limit=20` — users ranked by observed snapshot count, with distinct observed titles and playing/paused samples; accepts the same date/timezone filters.
 - `GET /api/v1/items/{item_id}/analytics` — observed snapshots and observed users for an item.
