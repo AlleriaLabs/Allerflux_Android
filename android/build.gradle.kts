@@ -4,6 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseKeystorePath = System.getenv("ALLERFLUX_KEYSTORE_PATH")
+val releaseKeystorePassword = System.getenv("ALLERFLUX_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("ALLERFLUX_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("ALLERFLUX_KEY_PASSWORD")
+
 android {
     namespace = "com.alleria.allerflux"
     compileSdk = 35
@@ -11,8 +16,26 @@ android {
         applicationId = "com.alleria.allerflux"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
+    }
+    signingConfigs {
+        if (!releaseKeystorePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            if (!releaseKeystorePath.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

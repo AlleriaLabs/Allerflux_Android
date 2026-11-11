@@ -24,7 +24,7 @@ The companion stores periodic session snapshots. These support observed activity
 - `android/` — native Android application.
 - `companion/` — FastAPI service and database.
 - `deploy/` — Docker Compose and deployment examples.
-- `docs/` — setup, API, analytics notes, [alert configuration](docs/ALERTS.md), [webhook setup](docs/JELLYFIN_WEBHOOK_SETUP.md), [security](docs/SECURITY.md), [backup/recovery](docs/BACKUP_RECOVERY.md), and [completion roadmap](docs/ROADMAP.md).
+- `docs/` — setup, API, analytics notes, [alert configuration](docs/ALERTS.md), [webhook setup](docs/JELLYFIN_WEBHOOK_SETUP.md), [security](docs/SECURITY.md), [backup/recovery](docs/BACKUP_RECOVERY.md), [signed release setup](docs/RELEASE.md), and [completion roadmap](docs/ROADMAP.md).
 
 ## Security
 Keep Jellyfin credentials and the Allerflux API secret in server-side environment variables. Do not commit secrets. Use a strong unique companion secret and expose the API only through a trusted LAN, VPN, or HTTPS reverse proxy. The Android client currently permits cleartext HTTP for trusted home-LAN connections; do not forward port 8787 directly to the public internet.
@@ -38,4 +38,4 @@ Keep Jellyfin credentials and the Allerflux API secret in server-side environmen
 6. For event-based playback analytics, follow [Jellyfin webhook setup](docs/JELLYFIN_WEBHOOK_SETUP.md) and configure a separate `ALLERFLUX_WEBHOOK_KEY`.
 
 ## Android build
-GitHub Actions builds a debug APK when Android or companion source changes are pushed to `main`, or on manual dispatch. Download the `allerflux-debug-apk` artifact from a successful workflow run. Debug APKs are for direct testing, not Play Store release.
+GitHub Actions builds a debug APK when Android or companion source changes are pushed to `main`, or on manual dispatch. Download the `allerflux-debug-apk` artifact from a successful workflow run. Debug APKs are for direct testing. Signed release builds require the one-time GitHub Actions signing secrets documented in [Release setup](docs/RELEASE.md).
