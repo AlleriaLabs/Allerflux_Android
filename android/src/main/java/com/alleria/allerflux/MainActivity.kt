@@ -157,27 +157,33 @@ private suspend fun loadLibrary(base: String, key: String): LibraryStats {
         j.optInt("song_count"), j.optInt("album_count"), j.optInt("artist_count"))
 }
 
-private suspend fun loadReportStats(base: String, key: String, days: Int): ReportStats {
-    val j = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=$days"))
+private fun reportQuery(days: Int, fromDate: String, toDate: String, timezone: String): String {
+    val custom = fromDate.isNotBlank() && toDate.isNotBlank()
+    val period = if (custom) "from_date=$fromDate&to_date=$toDate" else "days=$days"
+    return "$period&timezone=$timezone"
+}
+
+private suspend fun loadReportStats(base: String, key: String, query: String): ReportStats {
+    val j = JSONObject(apiGet(base, key, "/api/v1/reports/summary?$query"))
     return ReportStats(j.optInt("snapshot_count"), j.optInt("observed_users"), j.optInt("observed_titles"),
         j.optInt("playing_samples"), j.optInt("paused_samples"))
 }
 
-private suspend fun loadReportDetails(base: String, key: String, days: Int, groupBy: String): ReportDetails {
-    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?days=$days&group_by=$groupBy"))
+private suspend fun loadReportDetails(base: String, key: String, query: String, groupBy: String): ReportDetails {
+    val summary = JSONObject(apiGet(base, key, "/api/v1/reports/summary?$query&group_by=$groupBy"))
     val dailyJson = summary.optJSONArray("daily") ?: JSONArray()
     val daily = (0 until dailyJson.length()).map {
         val row = dailyJson.getJSONObject(it)
         DailyStat(row.optString("date"), row.optInt("snapshots"), row.optInt("unique_users"), row.optInt("unique_titles"))
     }
-    val titlesJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-titles?days=$days&limit=8"))
+    val titlesJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-titles?$query&limit=8"))
         .optJSONArray("items") ?: JSONArray()
     val titles = (0 until titlesJson.length()).map {
         val row = titlesJson.getJSONObject(it)
         TopTitle(row.optString("item_name", "Unknown title"), row.optString("media_type", "Media"),
             row.optInt("snapshot_count"), row.optInt("observed_users"))
     }
-    val usersJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-users?days=$days&limit=8"))
+    val usersJson = JSONObject(apiGet(base, key, "/api/v1/reports/top-users?$query&limit=8"))
         .optJSONArray("users") ?: JSONArray()
     val users = (0 until usersJson.length()).map {
         val row = usersJson.getJSONObject(it)
@@ -188,8 +194,8 @@ private suspend fun loadReportDetails(base: String, key: String, days: Int, grou
 
 
 
-private suspend fun loadReportCompare(base: String, key: String, days: Int): CompareSummary {
-    val root = JSONObject(apiGet(base, key, "/api/v1/reports/compare?days=$days"))
+private suspend fun loadReportCompare(base: String, key: String, query: String): CompareSummary {
+    val root = JSONObject(apiGet(base, key, "/api/v1/reports/compare?$query"))
     val metrics = root.optJSONObject("metrics") ?: JSONObject()
     fun read(name: String): CompareMetric {
         val item = metrics.optJSONObject(name) ?: JSONObject()
@@ -201,8 +207,8 @@ private suspend fun loadReportCompare(base: String, key: String, days: Int): Com
         read("playback_starts"), read("completed_stops"))
 }
 
-private suspend fun loadEventSummary(base: String, key: String, days: Int): EventSummary {
-    val j = JSONObject(apiGet(base, key, "/api/v1/events/summary?days=$days"))
+private suspend fun loadEventSummary(base: String, key: String, query: String): EventSummary {
+    val j = JSONObject(apiGet(base, key, "/api/v1/events/summary?$query"))
     return EventSummary(j.optInt("playback_starts"), j.optInt("playback_stops"),
         j.optInt("completed_stops"), j.optInt("distinct_users"), j.optInt("distinct_titles"))
 }
@@ -252,9 +258,13 @@ private fun deltaLabel(metric: CompareMetric): String {
 
 private fun csvCell(value: String): String = "\"" + value.replace("\"", "\"\"") + "\""
 
-private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, details: ReportDetails, events: EventSummary): String = buildString {
+private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, details: ReportDetails,
+    events: EventSummary, fromDate: String, toDate: String, timezone: String): String = buildString {
     appendLine("Allerflux viewing report")
     appendLine("Period days,$days")
+    appendLine("From date,${fromDate.ifBlank { "preset" }}")
+    appendLine("To date,${toDate.ifBlank { "preset" }}")
+    appendLine("Timezone,$timezone")
     appendLine("Grouping,$granularity")
     appendLine("Snapshot observations,${stats.snapshots}")
     appendLine("Observed users,${stats.users}")
@@ -282,9 +292,12 @@ private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, d
 }
 
 private fun buildReportPdf(output: OutputStream, days: Int, granularity: String, stats: ReportStats,
-    details: ReportDetails, events: EventSummary) {
+    details: ReportDetails, events: EventSummary, fromDate: String, toDate: String, timezone: String) {
     val lines = mutableListOf(
         "Reporting period: $days days",
+        "From date: ${fromDate.ifBlank { "preset" }}",
+        "To date: ${toDate.ifBlank { "preset" }}",
+        "Timezone: $timezone",
         "Snapshot observations: ${stats.snapshots}",
         "Observed users: ${stats.users}",
         "Observed titles: ${stats.titles}",
@@ -376,6 +389,12 @@ fun AllerfluxApp(context: Context) {
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     var reportDays by remember { mutableIntStateOf(30) }
     var reportGranularity by remember { mutableStateOf("day") }
+    var reportFromDate by remember { mutableStateOf("") }
+    var reportToDate by remember { mutableStateOf("") }
+    var reportTimezone by remember { mutableStateOf("Asia/Manila") }
+    var pendingPdfFromDate by remember { mutableStateOf("") }
+    var pendingPdfToDate by remember { mutableStateOf("") }
+    var pendingPdfTimezone by remember { mutableStateOf("Asia/Manila") }
     var compareSummary by remember { mutableStateOf(CompareSummary()) }
     var compareError by remember { mutableStateOf("") }
     var reportError by remember { mutableStateOf("") }
@@ -422,7 +441,8 @@ fun AllerfluxApp(context: Context) {
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use { buildReportPdf(it, days, pendingPdfGranularity, reportStats, reportDetails, eventSummary) }
+                        context.contentResolver.openOutputStream(uri)?.use { buildReportPdf(it, days, pendingPdfGranularity, reportStats, reportDetails, eventSummary,
+                            pendingPdfFromDate, pendingPdfToDate, pendingPdfTimezone) }
                             ?: error("Unable to open destination")
                     }
                 }
@@ -432,6 +452,10 @@ fun AllerfluxApp(context: Context) {
     }
 
     fun refresh() {
+        if (reportFromDate.isBlank() != reportToDate.isBlank()) {
+            reportError = "Enter both a start date and an end date, or clear both to use a preset period."
+            return
+        }
         if (serverUrl.isBlank() || apiKey.isBlank()) {
             error = "Enter the companion URL and API key in Settings."
             selected = "Settings"
@@ -448,11 +472,12 @@ fun AllerfluxApp(context: Context) {
             catch (e: Exception) { historyError = e.message ?: "Unable to load history" }
             try { library = loadLibrary(serverUrl, apiKey); libraryError = "" }
             catch (e: Exception) { libraryError = e.message ?: "Unable to load library inventory" }
-            try { reportStats = loadReportStats(serverUrl, apiKey, reportDays); reportDetails = loadReportDetails(serverUrl, apiKey, reportDays, reportGranularity); reportError = "" }
+            val query = reportQuery(reportDays, reportFromDate.trim(), reportToDate.trim(), reportTimezone.trim())
+            try { reportStats = loadReportStats(serverUrl, apiKey, query); reportDetails = loadReportDetails(serverUrl, apiKey, query, reportGranularity); reportError = "" }
             catch (e: Exception) { reportError = e.message ?: "Unable to load report summary" }
-            try { compareSummary = loadReportCompare(serverUrl, apiKey, reportDays); compareError = "" }
+            try { compareSummary = loadReportCompare(serverUrl, apiKey, query); compareError = "" }
             catch (e: Exception) { compareError = e.message ?: "Period comparison is unavailable" }
-            try { eventSummary = loadEventSummary(serverUrl, apiKey, reportDays); eventError = "" }
+            try { eventSummary = loadEventSummary(serverUrl, apiKey, query); eventError = "" }
             catch (e: Exception) { eventError = e.message ?: "Playback events are unavailable" }
             try { alertSummary = loadAlertSummary(serverUrl, apiKey); alertHistory = loadAlertHistory(serverUrl, apiKey); alertError = "" }
             catch (e: Exception) { alertError = e.message ?: "Alert history is unavailable" }
@@ -639,6 +664,33 @@ fun AllerfluxApp(context: Context) {
                                         label = { Text(when (days) { 7 -> "7D"; 30 -> "30D"; 90 -> "90D"; else -> "1Y" }) })
                                 }
                             }
+                            Text("CUSTOM DATE RANGE", color = Muted, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(value = reportFromDate, onValueChange = { reportFromDate = it },
+                                    label = { Text("From · YYYY-MM-DD") }, singleLine = true,
+                                    modifier = Modifier.weight(1f))
+                                OutlinedTextField(value = reportToDate, onValueChange = { reportToDate = it },
+                                    label = { Text("To · YYYY-MM-DD") }, singleLine = true,
+                                    modifier = Modifier.weight(1f))
+                            }
+                            OutlinedTextField(value = reportTimezone, onValueChange = { reportTimezone = it },
+                                label = { Text("Reporting timezone") }, singleLine = true,
+                                modifier = Modifier.fillMaxWidth())
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TextButton(onClick = {
+                                    reportFromDate = ""
+                                    reportToDate = ""
+                                    reportTimezone = "Asia/Manila"
+                                    refresh()
+                                }) { Text("Clear custom range", color = Accent) }
+                                Spacer(Modifier.weight(1f))
+                                Button(onClick = { refresh() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
+                                    Text("Apply range")
+                                }
+                            }
                             Text("GROUP BY", color = Muted, fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -701,7 +753,8 @@ fun AllerfluxApp(context: Context) {
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedButton(onClick = {
-                                    pendingCsv = buildReportCsv(reportDays, reportGranularity, reportStats, reportDetails, eventSummary)
+                                    pendingCsv = buildReportCsv(reportDays, reportGranularity, reportStats, reportDetails, eventSummary,
+                                        reportFromDate, reportToDate, reportTimezone)
                                     exportMessage = ""
                                     csvLauncher.launch("allerflux-report-${reportDays}d.csv")
                                 }, modifier = Modifier.weight(1f)) {
@@ -712,6 +765,9 @@ fun AllerfluxApp(context: Context) {
                                 OutlinedButton(onClick = {
                                     pendingPdfDays = reportDays
                                     pendingPdfGranularity = reportGranularity
+                                    pendingPdfFromDate = reportFromDate
+                                    pendingPdfToDate = reportToDate
+                                    pendingPdfTimezone = reportTimezone
                                     exportMessage = ""
                                     pdfLauncher.launch("allerflux-report-${reportDays}d.pdf")
                                 }, modifier = Modifier.weight(1f)) {
