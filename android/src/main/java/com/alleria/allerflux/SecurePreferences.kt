@@ -69,9 +69,11 @@ class SecurePreferences(context: Context) {
         if (oldUrl.isNotBlank() || oldKey.isNotBlank()) {
             if (save(oldUrl, oldKey)) {
                 legacy.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).apply()
+                return oldUrl to oldKey
             }
+            return "" to ""
         }
-        return oldUrl to oldKey
+        return "" to ""
     }
 
     fun save(serverUrl: String, apiKey: String): Boolean = runCatching {
