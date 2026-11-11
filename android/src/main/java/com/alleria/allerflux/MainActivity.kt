@@ -1029,13 +1029,55 @@ fun AllerfluxApp(context: Context) {
                     }
                 }
                 if (selected == "Settings") {
+                    item { SectionHeading("Registered Jellyfin servers") }
+                    if (servers.isEmpty()) {
+                        item { InfoCard("NO SERVERS YET", "Add your first server",
+                            "Register more than one Jellyfin server. Each connection is stored separately with encrypted credentials.", "") }
+                    }
+                    items(servers) { server ->
+                        Surface(
+                            color = if (server.id == selectedServerId) Color(0xFF222337) else Panel,
+                            shape = RoundedCornerShape(16.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (server.id == selectedServerId) 1.5.dp else 1.dp,
+                                if (server.id == selectedServerId) AccentPurple else Border
+                            ),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedServerId = server.id
+                                serverNameDraft = server.name
+                                urlDraft = server.url
+                                keyDraft = server.apiKey
+                                serverUrl = server.url
+                                apiKey = server.apiKey
+                                selected = "Overview"
+                                error = ""
+                                refresh()
+                            }
+                        ) {
+                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Dns, contentDescription = null, tint = AccentPurple)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(server.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text(server.url, color = Muted, fontSize = 11.sp)
+                                }
+                                if (server.id == selectedServerId) Text("ACTIVE", color = Accent,
+                                    fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    item { SectionHeading(if (selectedServerId.isBlank()) "Register server" else "Edit server") }
                     item { SectionHeading("Server connection") }
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
                     item {
                         Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("Companion configuration", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text(if (selectedServerId.isBlank()) "New server details" else "Server details",
+                                    color = Color.White, fontWeight = FontWeight.SemiBold)
+                                OutlinedTextField(value = serverNameDraft, onValueChange = { serverNameDraft = it },
+                                    label = { Text("Server name") }, placeholder = { Text("Home Jellyfin") },
+                                    singleLine = true, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
                                     placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") },
@@ -1045,24 +1087,34 @@ fun AllerfluxApp(context: Context) {
                                 Button(onClick = {
                                     val nextUrl = urlDraft.trim().trimEnd('/')
                                     val nextKey = keyDraft.trim()
-                                    scope.launch {
-                                        val saved = withContext(Dispatchers.IO) {
-                                            runCatching {
-                                                SecurePreferences(context.applicationContext).save(nextUrl, nextKey)
-                                            }.getOrDefault(false)
-                                        }
-                                        if (saved) {
-                                            serverUrl = nextUrl
-                                            apiKey = nextKey
-                                            selected = "Overview"
-                                            error = ""
-                                            refresh()
+                                    val nextName = serverNameDraft.trim().ifBlank { "Jellyfin server ${servers.size + 1}" }
+                                    if (nextUrl.isBlank() || nextKey.isBlank()) {
+                                        error = "Enter the companion URL and API key."
+                                    } else scope.launch {
+                                        val test = runCatching { loadOverview(nextUrl, nextKey) }
+                                        if (test.isFailure) {
+                                            error = "Connection test failed: ${test.exceptionOrNull()?.message}"
                                         } else {
-                                            error = "Unable to securely save connection settings. Check device security and try again."
+                                            val id = selectedServerId.ifBlank { java.util.UUID.randomUUID().toString() }
+                                            val updated = servers.filterNot { it.id == id } +
+                                                SavedServer(id, nextName, nextUrl, nextKey)
+                                            val saved = withContext(Dispatchers.IO) {
+                                                SecurePreferences(context.applicationContext).saveServers(updated)
+                                            }
+                                            if (saved) {
+                                                servers = updated
+                                                selectedServerId = id
+                                                serverNameDraft = nextName
+                                                serverUrl = nextUrl
+                                                apiKey = nextKey
+                                                overview = test.getOrThrow()
+                                                selected = "Overview"
+                                                error = ""
+                                            } else error = "Unable to securely save server credentials."
                                         }
                                     }
                                 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
-                                    Text("Save & connect")
+                                    Text(if (selectedServerId.isBlank()) "Test & add server" else "Test & save server")
                                 }
                                 OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
                             }
