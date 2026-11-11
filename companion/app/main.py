@@ -73,7 +73,10 @@ def change_alert_state(alert_key: str, kind: str, title: str, message: str, acti
                 return None
             state.is_active = True
             cooldown = max(0, settings.alert_cooldown_minutes)
-            if state.last_triggered_at and now - state.last_triggered_at < timedelta(minutes=cooldown):
+            last_triggered = state.last_triggered_at
+            if last_triggered and last_triggered.tzinfo is None:
+                last_triggered = last_triggered.replace(tzinfo=timezone.utc)
+            if last_triggered and now - last_triggered < timedelta(minutes=cooldown):
                 state.updated_at = now
                 db.commit()
                 return None
