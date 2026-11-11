@@ -261,7 +261,7 @@ private fun csvCell(value: String): String = "\"" + value.replace("\"", "\"\"") 
 private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, details: ReportDetails,
     events: EventSummary, fromDate: String, toDate: String, timezone: String): String = buildString {
     appendLine("Allerflux viewing report")
-    appendLine("Period days,$days")
+    appendLine("Preset period days,$days")
     appendLine("From date,${fromDate.ifBlank { "preset" }}")
     appendLine("To date,${toDate.ifBlank { "preset" }}")
     appendLine("Timezone,$timezone")
@@ -294,7 +294,7 @@ private fun buildReportCsv(days: Int, granularity: String, stats: ReportStats, d
 private fun buildReportPdf(output: OutputStream, days: Int, granularity: String, stats: ReportStats,
     details: ReportDetails, events: EventSummary, fromDate: String, toDate: String, timezone: String) {
     val lines = mutableListOf(
-        "Reporting period: $days days",
+        "Preset reporting period: $days days",
         "From date: ${fromDate.ifBlank { "preset" }}",
         "To date: ${toDate.ifBlank { "preset" }}",
         "Timezone: $timezone",
@@ -409,6 +409,8 @@ fun AllerfluxApp(context: Context) {
     var selected by remember { mutableStateOf("Overview") }
     var urlDraft by remember { mutableStateOf(serverUrl) }
     var keyDraft by remember { mutableStateOf(apiKey) }
+    val reportPeriodLabel = if (reportFromDate.isNotBlank() && reportToDate.isNotBlank())
+        "${reportFromDate} – ${reportToDate} · ${reportTimezone}" else "$reportPeriodLabel"
     val scope = rememberCoroutineScope()
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
@@ -844,7 +846,7 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Top Viewers") {
-                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback samples over the last $reportDays days.", "") }
+                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback samples over $reportPeriodLabel.", "") }
                     if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO DATA", "No ranked users yet", "User activity will appear as snapshots are collected.", "") }
                     val maxViewerSamples = reportDetails.topUsers.maxOfOrNull { it.samples } ?: 1
                     itemsIndexed(reportDetails.topUsers) { index, user ->
