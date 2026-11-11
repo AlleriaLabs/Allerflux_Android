@@ -410,7 +410,7 @@ fun AllerfluxApp(context: Context) {
     var urlDraft by remember { mutableStateOf(serverUrl) }
     var keyDraft by remember { mutableStateOf(apiKey) }
     val reportPeriodLabel = if (reportFromDate.isNotBlank() && reportToDate.isNotBlank())
-        "${reportFromDate} – ${reportToDate} · ${reportTimezone}" else "$reportPeriodLabel"
+        "${reportFromDate} – ${reportToDate} · ${reportTimezone}" else "Last $reportDays days"
     val scope = rememberCoroutineScope()
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
