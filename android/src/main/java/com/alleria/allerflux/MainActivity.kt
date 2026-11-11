@@ -358,10 +358,10 @@ private fun buildReportPdf(output: OutputStream, days: Int, granularity: String,
 
 @Composable
 fun AllerfluxApp(context: Context) {
-    val securePrefs = remember { SecurePreferences(context) }
-    val savedConnection = remember { securePrefs.load() }
-    var serverUrl by remember { mutableStateOf(savedConnection.first) }
-    var apiKey by remember { mutableStateOf(savedConnection.second) }
+    // Keep Android Keystore work off the main thread. A damaged or unavailable
+    // Keystore entry must never prevent the dashboard from rendering.
+    var serverUrl by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
     var overview by remember { mutableStateOf(Overview()) }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
@@ -393,8 +393,8 @@ fun AllerfluxApp(context: Context) {
     var activityError by remember { mutableStateOf("") }
     var historyError by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf("Overview") }
-    var urlDraft by remember { mutableStateOf(serverUrl) }
-    var keyDraft by remember { mutableStateOf(apiKey) }
+    var urlDraft by remember { mutableStateOf("") }
+    var keyDraft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
@@ -434,6 +434,17 @@ fun AllerfluxApp(context: Context) {
                 exportMessage = if (result.isSuccess) "PDF report saved." else "PDF export failed: ${result.exceptionOrNull()?.message}"
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        val saved = withContext(Dispatchers.IO) {
+            runCatching { SecurePreferences(context.applicationContext).load() }
+                .getOrDefault("" to "")
+        }
+        serverUrl = saved.first
+        apiKey = saved.second
+        urlDraft = saved.first
+        keyDraft = saved.second
     }
 
     fun refresh() {
@@ -917,14 +928,21 @@ fun AllerfluxApp(context: Context) {
                                 Button(onClick = {
                                     val nextUrl = urlDraft.trim().trimEnd('/')
                                     val nextKey = keyDraft.trim()
-                                    if (securePrefs.save(nextUrl, nextKey)) {
-                                        serverUrl = nextUrl
-                                        apiKey = nextKey
-                                        selected = "Overview"
-                                        error = ""
-                                        refresh()
-                                    } else {
-                                        error = "Unable to securely save connection settings. Please try again."
+                                    scope.launch {
+                                        val saved = withContext(Dispatchers.IO) {
+                                            runCatching {
+                                                SecurePreferences(context.applicationContext).save(nextUrl, nextKey)
+                                            }.getOrDefault(false)
+                                        }
+                                        if (saved) {
+                                            serverUrl = nextUrl
+                                            apiKey = nextKey
+                                            selected = "Overview"
+                                            error = ""
+                                            refresh()
+                                        } else {
+                                            error = "Unable to securely save connection settings. Check device security and try again."
+                                        }
                                     }
                                 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
                                     Text("Save & connect")
