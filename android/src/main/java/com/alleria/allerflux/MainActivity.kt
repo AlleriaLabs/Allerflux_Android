@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -300,9 +301,10 @@ private fun buildReportPdf(output: OutputStream, days: Int, stats: ReportStats,
 
 @Composable
 fun AllerfluxApp(context: Context) {
-    val prefs = remember { context.getSharedPreferences("allerflux", Context.MODE_PRIVATE) }
-    var serverUrl by remember { mutableStateOf(prefs.getString("server_url", "") ?: "") }
-    var apiKey by remember { mutableStateOf(prefs.getString("api_key", "") ?: "") }
+    val securePrefs = remember { SecurePreferences(context) }
+    val savedConnection = remember { securePrefs.load() }
+    var serverUrl by remember { mutableStateOf(savedConnection.first) }
+    var apiKey by remember { mutableStateOf(savedConnection.second) }
     var overview by remember { mutableStateOf(Overview()) }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
@@ -758,14 +760,21 @@ fun AllerfluxApp(context: Context) {
                                 OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
                                     placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") },
+                                    visualTransformation = PasswordVisualTransformation(),
                                     singleLine = true, modifier = Modifier.fillMaxWidth())
                                 Text("For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 12.sp)
                                 Button(onClick = {
-                                    serverUrl = urlDraft.trim().trimEnd('/')
-                                    apiKey = keyDraft.trim()
-                                    prefs.edit().putString("server_url", serverUrl).putString("api_key", apiKey).apply()
-                                    selected = "Overview"
-                                    refresh()
+                                    val nextUrl = urlDraft.trim().trimEnd('/')
+                                    val nextKey = keyDraft.trim()
+                                    if (securePrefs.save(nextUrl, nextKey)) {
+                                        serverUrl = nextUrl
+                                        apiKey = nextKey
+                                        selected = "Overview"
+                                        error = ""
+                                        refresh()
+                                    } else {
+                                        error = "Unable to securely save connection settings. Please try again."
+                                    }
                                 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
                                     Text("Save & connect")
                                 }
