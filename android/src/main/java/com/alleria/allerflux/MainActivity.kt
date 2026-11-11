@@ -15,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -589,25 +590,14 @@ fun AllerfluxApp(context: Context) {
                     if (activityError.isNotBlank()) item { InfoCard("ACTIVITY UNAVAILABLE", "Could not load live sessions", activityError, "") }
                     else if (sessions.isEmpty()) item { InfoCard("NO ACTIVE SESSIONS", "Nothing is streaming right now",
                         "Current Jellyfin sessions will appear here when users start playback.", "") }
-                    else items(sessions.size) { i ->
-                        val s = sessions[i]
-                        InfoCard(
-                            s.user,
-                            if (s.state == "idle") "Not playing" else s.title,
-                            "${s.state.uppercase()}  •  ${s.device}",
-                            buildString {
-                                append(s.client)
-                                if (s.version != "Version unavailable") append(" · " + s.version)
-                                if (s.state == "idle") append(" · Idle: " + (s.idleSeconds?.let { formatDuration(it) } ?: "duration unavailable"))
-                                else if (s.position > 0) append(" · Position: " + (s.position / 10000000L / 60) + " min")
-                                append(" · Last activity: " + s.lastActivity)
-                            }
-                        )
+                    else itemsIndexed(sessions) { _, session ->
+                        SessionCard(session)
                     }
                 }
 
                 if (selected == "Library") {
                     if (libraryError.isNotBlank()) item { InfoCard("LIBRARY UNAVAILABLE", "Could not load Jellyfin inventory", libraryError, "") }
+                    item { SectionHeading("Video library") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Movies", library.movies.toString(), "Movie library", Modifier.weight(1f))
                         MetricCard("TV series", library.series.toString(), "Series library", Modifier.weight(1f))
@@ -616,6 +606,7 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Episodes", library.episodes.toString(), "TV episodes", Modifier.weight(1f))
                         MetricCard("Songs", library.songs.toString(), "Music tracks", Modifier.weight(1f))
                     } }
+                    item { SectionHeading("Music library") }
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Albums", library.albums.toString(), "Music albums", Modifier.weight(1f))
                         MetricCard("Artists", library.artists.toString(), "Music artists", Modifier.weight(1f))
@@ -784,21 +775,23 @@ fun AllerfluxApp(context: Context) {
                 }
 
                 if (selected == "Top Viewers") {
-                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback activity over the last $reportDays days.", "") }
+                    item { InfoCard("VIEWER LEADERBOARD", "Most active Jellyfin users", "Ranked by observed playback samples over the last $reportDays days.", "") }
                     if (reportDetails.topUsers.isEmpty()) item { InfoCard("NO DATA", "No ranked users yet", "User activity will appear as snapshots are collected.", "") }
-                    items(reportDetails.topUsers) { user ->
-                        InfoCard("RANK " + (reportDetails.topUsers.indexOf(user) + 1), user.name,
-                            user.samples.toString() + " observed samples", user.titles.toString() + " distinct titles")
+                    val maxViewerSamples = reportDetails.topUsers.maxOfOrNull { it.samples } ?: 1
+                    itemsIndexed(reportDetails.topUsers) { index, user ->
+                        LeaderboardCard(index + 1, user.name, user.titles.toString() + " distinct titles",
+                            user.samples, maxViewerSamples, "samples")
                     }
                     item { InfoCard("ACCURACY", "Snapshot-based estimates", "These are observed sessions, not exact play counts or watch time.", "") }
                     item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
                 }
                 if (selected == "Top Videos") {
-                    item { InfoCard("TITLE LEADERBOARD", "Most watched videos and episodes", "Ranked by observed playback activity over the last $reportDays days.", "") }
+                    item { InfoCard("TITLE LEADERBOARD", "Top observed videos and episodes", "Ranked by periodic playback observations over the last $reportDays days.", "") }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO DATA", "No ranked titles yet", "Title rankings will appear as snapshots are collected.", "") }
-                    items(reportDetails.topTitles) { title ->
-                        InfoCard("RANK " + (reportDetails.topTitles.indexOf(title) + 1) + " · " + title.type,
-                            title.name, title.users.toString() + " distinct viewers", title.samples.toString() + " observed samples")
+                    val maxTitleSamples = reportDetails.topTitles.maxOfOrNull { it.samples } ?: 1
+                    itemsIndexed(reportDetails.topTitles) { index, title ->
+                        LeaderboardCard(index + 1, title.name, title.type + " · " + title.users + " viewers",
+                            title.samples, maxTitleSamples, "samples")
                     }
                     item { InfoCard("ACCURACY", "Snapshot-based estimates", "These are not exact play starts, completions, or total watch duration.", "") }
                     item { OutlinedButton(onClick = { selected = "Reports" }) { Text("Back to Reports") } }
@@ -855,6 +848,7 @@ fun AllerfluxApp(context: Context) {
                     }
                 }
                 if (selected == "Settings") {
+                    item { SectionHeading("Server connection") }
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
                     item {
@@ -886,11 +880,13 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                     }
+                    item { SectionHeading("Companion diagnostics") }
                     item { InfoCard("COMPANION DIAGNOSTICS",
                         if (diagnosticsError.isBlank()) (if (diagnostics.databaseConnected) "Database healthy" else "Database unavailable") else "Diagnostics unavailable",
                         if (diagnosticsError.isBlank()) "Jellyfin polling: ${if (diagnostics.pollingEnabled) "enabled" else "not configured"} · interval: ${diagnostics.pollInterval}s · last success: ${diagnostics.lastSuccess}"
                             else diagnosticsError,
                         if (diagnosticsError.isBlank()) "Retention: ${diagnostics.snapshotRetention} days of snapshots · ${diagnostics.eventRetention} days of events · last poll error: ${diagnostics.lastError}" else "") }
+                    item { SectionHeading("Backup & recovery") }
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             OutlinedButton(onClick = {
@@ -914,13 +910,14 @@ fun AllerfluxApp(context: Context) {
                                 color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
                         }
                     }
+                    item { SectionHeading("Preferences") }
                     item { InfoCard("APP PREFERENCES", "Automatic refresh · 60 seconds", "Dark theme with navy surfaces and cyan accents.", "") }
                     item { TextButton(onClick = { selected = "About" }) { Text("About Allerflux  →", color = Accent) } }
                 }
                 if (selected == "About") {
                     item { InfoCard("ALLERFLUX", "Media Server Intelligence", "Version 0.6.0 · Built by Alleria Labs", "Monitor. Analyze. Enjoy.") }
                     item { InfoCard("PRODUCT", "Alleria Labs", "Self-hosted Jellyfin monitoring, live activity, library inventory, and viewing analytics.", "") }
-                    item { InfoCard("DATA ACCURACY", "Transparent analytics", "Historical reports use periodic observations. Exact playback events and watch duration are not yet available.", "") }
+                    item { InfoCard("DATA ACCURACY", "Transparent analytics", "Snapshot rankings are periodic observations. Optional Jellyfin webhook events are counted separately; watch duration is never inferred.", "") }
                     item { OutlinedButton(onClick = { selected = "Settings" }) { Text("Back to Settings") } }
                 }
                 if (selected in listOf("Overview", "Activity", "Library", "Reports", "Alerts")) {
@@ -961,6 +958,85 @@ private fun MoreDestination(title: String, subtitle: String, detail: String,
                 Text(detail, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Muted)
+        }
+    }
+}
+
+
+@Composable
+private fun SessionCard(session: SessionRow) {
+    val stateColor = when (session.state.lowercase()) {
+        "playing" -> Accent
+        "paused" -> Color(0xFFFFC078)
+        else -> Muted
+    }
+    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(session.user, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(session.device, color = Muted, fontSize = 11.sp)
+                }
+                Surface(color = stateColor.copy(alpha = 0.14f), shape = RoundedCornerShape(30.dp)) {
+                    Text(session.state.uppercase(), color = stateColor, fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                }
+            }
+            Text(if (session.state == "idle") "No media currently playing" else session.title,
+                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Devices, contentDescription = null, tint = Accent, modifier = Modifier.size(14.dp))
+                Text(session.client + if (session.version != "Version unavailable") " · " + session.version else "",
+                    color = Muted, fontSize = 11.sp)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+                Text("Last activity: " + session.lastActivity, color = Muted, fontSize = 11.sp)
+                if (session.state == "idle") {
+                    Text("·", color = Muted)
+                    Text("Idle " + (session.idleSeconds?.let { formatDuration(it) } ?: "unknown"),
+                        color = stateColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                } else if (session.position > 0) {
+                    Text("·", color = Muted)
+                    Text((session.position / 10000000L / 60).toString() + " min in",
+                        color = Muted, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LeaderboardCard(rank: Int, name: String, subtitle: String, value: Int,
+    maxValue: Int, metricLabel: String) {
+    val fraction = (value.toFloat() / maxValue.coerceAtLeast(1)).coerceIn(0f, 1f)
+    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+            Surface(color = if (rank == 1) Color(0xFF24453F) else PanelElevated,
+                shape = RoundedCornerShape(13.dp), modifier = Modifier.size(42.dp)) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(rank.toString().padStart(2, '0'),
+                        color = if (rank == 1) Accent else Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = Muted, fontSize = 11.sp)
+                Box(Modifier.fillMaxWidth().height(5.dp).background(Border, RoundedCornerShape(8.dp))) {
+                    Box(Modifier.fillMaxWidth(fraction).height(5.dp)
+                        .background(Accent, RoundedCornerShape(8.dp)))
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(value.toString(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(metricLabel, color = Muted, fontSize = 9.sp)
+            }
         }
     }
 }
