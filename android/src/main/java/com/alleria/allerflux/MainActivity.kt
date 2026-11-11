@@ -40,12 +40,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.OutputStream
 
-private val Ink = Color(0xFF080D16)
-private val Panel = Color(0xFF111B29)
-private val PanelElevated = Color(0xFF172436)
-private val Accent = Color(0xFF70E3CF)
-private val Muted = Color(0xFF91A3B8)
-private val Border = Color(0xFF26364A)
+// Allerion-inspired premium surfaces with Allerflux's own cyan/purple identity.
+private val Ink = Color(0xFF090A10)
+private val Panel = Color(0xFF12141E)
+private val PanelElevated = Color(0xFF191C29)
+private val Accent = Color(0xFF39D5F2)
+private val AccentPurple = Color(0xFF9B72FF)
+private val Muted = Color(0xFF9AA3B5)
+private val Border = Color(0xFF292D3B)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -473,9 +475,10 @@ fun AllerfluxApp(context: Context) {
         }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = Accent, onBackground = Color.White, onSurface = Color.White)) {
+    MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = AccentPurple,
+        secondary = Accent, onBackground = Color.White, onSurface = Color.White)) {
         Scaffold(containerColor = Ink, bottomBar = {
-            NavigationBar(containerColor = Panel) {
+            NavigationBar(containerColor = Color(0xFF10121B), tonalElevation = 0.dp) {
                 listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
                     NavigationBarItem(selected = selected == tab, onClick = { selected = tab },
                         icon = { Icon(when (tab) {
@@ -487,7 +490,7 @@ fun AllerfluxApp(context: Context) {
                         }, contentDescription = tab) },
                         label = { Text(tab) },
                         colors = NavigationBarItemDefaults.colors(selectedIconColor = Accent, selectedTextColor = Accent,
-                            indicatorColor = Color(0xFF203B42), unselectedTextColor = Muted))
+                            indicatorColor = Color(0xFF29213D), unselectedTextColor = Muted))
                 }
             }
         }) { padding ->
