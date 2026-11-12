@@ -846,3 +846,9 @@ def item_analytics(item_id: str, db: Session = Depends(get_db)):
         },
         "accuracy_note": "Periodic observations, not exact play counts, unique playback starts, completion, or watch duration.",
     }
+
+
+# Jellyfin administration endpoints. These expose server metadata and supported
+# maintenance actions; they never alter playback sessions.
+from .admin import router as admin_router
+app.include_router(admin_router)
