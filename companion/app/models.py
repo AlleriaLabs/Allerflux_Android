@@ -6,6 +6,18 @@ from .database import Base
 def utcnow():
     return datetime.now(timezone.utc)
 
+class JellyfinServer(Base):
+    __tablename__ = "jellyfin_servers"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class SessionSnapshot(Base):
     __tablename__ = "session_snapshots"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

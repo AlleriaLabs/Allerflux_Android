@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     jellyfin_api_key: str = ""
     allerflux_api_key: str = ""
     allerflux_webhook_key: str = ""
+    allerflux_encryption_key: str = ""
     database_url: str = "sqlite:////data/allerflux.db"
     poll_interval_seconds: int = 20
     idle_alert_threshold_seconds: int = 1800

@@ -2,7 +2,7 @@ name: Android debug build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feature/allerion-ui-multiserver ]
     paths:
       - "android/**"
       - "companion/**"
@@ -38,7 +38,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install companion dependencies
-        run: pip install -r companion/requirements.txt
+        run: |
+          pip install -r companion/requirements.txt
+          pip install pytest==8.3.5
       - name: Check companion Python syntax
         run: python -m compileall -q companion/app
       - name: Run companion unit tests

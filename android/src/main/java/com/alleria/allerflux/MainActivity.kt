@@ -2,13 +2,16 @@ package com.alleria.allerflux
 
 import android.content.Context
 import android.graphics.Paint
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Canvas
@@ -17,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -24,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
@@ -40,20 +45,93 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.OutputStream
 
-private val Ink = Color(0xFF080D16)
-private val Panel = Color(0xFF111B29)
-private val PanelElevated = Color(0xFF172436)
-private val Accent = Color(0xFF70E3CF)
-private val Muted = Color(0xFF91A3B8)
-private val Border = Color(0xFF26364A)
+// Premium Allerion-style surfaces with Allerflux's own orbital emblem and cyan/purple identity.
+private val Ink = Color(0xFF0B0D12)
+private val Panel = Color(0xFF141720)
+private val PanelElevated = Color(0xFF1B2230)
+private val Accent = Color(0xFFFF4057)
+private val AccentPurple = Color(0xFFFF4057)
+private val Muted = Color(0xFF9AA3B5)
+private val Border = Color(0xFF272D38)
+private val BrandRed = Color(0xFFFF4057)
+private val StatusGreen = Color(0xFF42D6A4)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val crashReport = runCatching {
+            java.io.File(filesDir, "last_crash.txt").takeIf { it.exists() }?.readText()
+        }.getOrNull()
+        if (!crashReport.isNullOrBlank()) {
+            showCrashReport(crashReport)
+            return
+        }
         setContent { AllerfluxApp(this) }
+    }
+
+    // Use platform Views here so the diagnostic screen does not depend on Compose.
+    private fun showCrashReport(report: String) {
+        val root = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(32, 48, 32, 32)
+            setBackgroundColor(android.graphics.Color.rgb(9, 10, 16))
+        }
+        root.addView(android.widget.TextView(this).apply {
+            text = "Allerflux detected a startup crash"
+            textSize = 22f
+            setTextColor(android.graphics.Color.WHITE)
+            setPadding(0, 0, 0, 20)
+        })
+        root.addView(android.widget.TextView(this).apply {
+            text = "The error below was saved automatically. Copy or share it with ChatGPT so the exact cause can be fixed."
+            textSize = 14f
+            setTextColor(android.graphics.Color.LTGRAY)
+            setPadding(0, 0, 0, 20)
+        })
+        root.addView(android.widget.ScrollView(this).apply {
+            addView(android.widget.TextView(this@MainActivity).apply {
+                text = report
+                textSize = 12f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(android.graphics.Color.rgb(190, 220, 230))
+                setTextIsSelectable(true)
+            })
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+        })
+        root.addView(android.widget.Button(this).apply {
+            text = "Share crash report"
+            setOnClickListener {
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "Allerflux startup crash")
+                    putExtra(android.content.Intent.EXTRA_TEXT, report)
+                }
+                startActivity(android.content.Intent.createChooser(intent, "Share crash report"))
+            }
+        })
+        root.addView(android.widget.Button(this).apply {
+            text = "Clear report and retry"
+            setOnClickListener {
+                runCatching { java.io.File(filesDir, "last_crash.txt").delete() }
+                recreate()
+            }
+        })
+        setContentView(root)
     }
 }
 
+private data class AnalyticsRank(val title: String, val count: Int, val detail: String = "")
+private data class DashboardAnalytics(
+    val watchingUsers: List<String> = emptyList(),
+    val currentMovies: List<AnalyticsRank> = emptyList(),
+    val mostPlayed: List<AnalyticsRank> = emptyList(),
+    val mostCompleted: List<AnalyticsRank> = emptyList(),
+    val topViewers: List<AnalyticsRank> = emptyList(),
+    val watchTimeNote: String = ""
+)
+private data class HourlyUsersPoint(val hour: String, val onlineUsers: Int, val uniqueUsers: Int)
 private data class Overview(
     val users: String = "—",
     val sessions: String = "—",
@@ -124,6 +202,42 @@ private suspend fun apiGetBytes(base: String, key: String, path: String): ByteAr
         }
         c.inputStream.use { it.readBytes() }
     } finally { c.disconnect() }
+}
+
+private suspend fun loadDashboardAnalytics(base: String, key: String): DashboardAnalytics {
+    val root = JSONObject(apiGet(base, key, "/api/v1/analytics/dashboard"))
+    fun readRanks(name: String, countField: String, detailField: String = ""): List<AnalyticsRank> {
+        val rows = root.optJSONArray(name) ?: JSONArray()
+        return (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            AnalyticsRank(row.safeText("title", row.safeText("username", "Unknown")),
+                row.optInt(countField), if (detailField.isBlank()) "" else row.safeText(detailField, ""))
+        }
+    }
+    val users = root.optJSONArray("currently_watching_users") ?: JSONArray()
+    val movies = root.optJSONArray("currently_watched_movies") ?: JSONArray()
+    val currentMovies = (0 until movies.length()).map { i ->
+        val row = movies.getJSONObject(i)
+        AnalyticsRank(row.safeText("title", "Unknown movie"), 0, row.safeText("username", ""))
+    }
+    return DashboardAnalytics(
+        watchingUsers = (0 until users.length()).map { users.optString(it) },
+        currentMovies = currentMovies,
+        mostPlayed = readRanks("most_played_movies", "count"),
+        mostCompleted = readRanks("most_completed_movies", "count"),
+        topViewers = readRanks("top_viewers_by_watch_time", "observed_seconds", "samples")
+            .map { it.copy(detail = formatDuration(it.count.toLong())) },
+        watchTimeNote = root.safeText("watch_time_method", "")
+    )
+}
+
+private suspend fun loadHourlyUsers(base: String, key: String): List<HourlyUsersPoint> {
+    val root = JSONObject(apiGet(base, key, "/api/v1/analytics/last-24-hours"))
+    val rows = root.optJSONArray("points") ?: JSONArray()
+    return (0 until rows.length()).map { index ->
+        val row = rows.getJSONObject(index)
+        HourlyUsersPoint(row.safeText("hour", ""), row.optInt("online_users"), row.optInt("unique_users"))
+    }
 }
 
 private suspend fun loadOverview(base: String, key: String): Overview {
@@ -354,11 +468,18 @@ private fun buildReportPdf(output: OutputStream, days: Int, granularity: String,
 
 @Composable
 fun AllerfluxApp(context: Context) {
-    val securePrefs = remember { SecurePreferences(context) }
-    val savedConnection = remember { securePrefs.load() }
-    var serverUrl by remember { mutableStateOf(savedConnection.first) }
-    var apiKey by remember { mutableStateOf(savedConnection.second) }
+    // Keep Android Keystore work off the main thread. A damaged or unavailable
+    // Keystore entry must never prevent the dashboard from rendering.
+    var serverUrl by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var servers by remember { mutableStateOf<List<SavedServer>>(emptyList()) }
+    var selectedServerId by remember { mutableStateOf("") }
+    var serverNameDraft by remember { mutableStateOf("") }
     var overview by remember { mutableStateOf(Overview()) }
+    var hourlyUsers by remember { mutableStateOf<List<HourlyUsersPoint>>(emptyList()) }
+    var hourlyUsersError by remember { mutableStateOf("") }
+    var dashboardAnalytics by remember { mutableStateOf(DashboardAnalytics()) }
+    var dashboardAnalyticsError by remember { mutableStateOf("") }
     var sessions by remember { mutableStateOf<List<SessionRow>>(emptyList()) }
     var history by remember { mutableStateOf<List<HistoryRow>>(emptyList()) }
     var library by remember { mutableStateOf(LibraryStats()) }
@@ -388,10 +509,16 @@ fun AllerfluxApp(context: Context) {
     var error by remember { mutableStateOf("") }
     var activityError by remember { mutableStateOf("") }
     var historyError by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf("Overview") }
-    var urlDraft by remember { mutableStateOf(serverUrl) }
-    var keyDraft by remember { mutableStateOf(apiKey) }
+    var selected by remember { mutableStateOf("Servers") }
+    var onlineServerIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var urlDraft by remember { mutableStateOf("") }
+    var keyDraft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    // Decode the supplied JPEG with Android's BitmapFactory; Compose painterResource
+    // cannot safely cast this JPEG on some Android 12 devices.
+    val logoBitmap = remember(context) {
+        BitmapFactory.decodeResource(context.resources, R.drawable.allerflux_logo)?.asImageBitmap()
+    }
     val csvLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null) {
             val content = pendingCsv
@@ -432,6 +559,46 @@ fun AllerfluxApp(context: Context) {
         }
     }
 
+    BackHandler(enabled = selected != "Servers") {
+        selected = "Servers"
+        error = ""
+    }
+
+    LaunchedEffect(Unit) {
+        val savedServers = withContext(Dispatchers.IO) {
+            runCatching { SecurePreferences(context.applicationContext).loadServers() }.getOrDefault(emptyList())
+        }
+        servers = savedServers
+        val active = savedServers.firstOrNull()
+        if (active != null) {
+            selectedServerId = active.id
+            serverNameDraft = active.name
+            serverUrl = active.url
+            apiKey = active.apiKey
+            urlDraft = active.url
+            keyDraft = active.apiKey
+        }
+        // Initial checks can race companion/Jellyfin startup. Retry transient failures,
+        // then keep every registered server status fresh while the Servers page is open.
+        while (true) {
+            val online = mutableSetOf<String>()
+            servers.forEach { server ->
+                var connected = false
+                repeat(2) { attempt ->
+                    if (!connected) {
+                        connected = withContext(Dispatchers.IO) {
+                            runCatching { loadOverview(server.url, server.apiKey).connected }.getOrDefault(false)
+                        }
+                        if (!connected && attempt == 0) delay(1_200)
+                    }
+                }
+                if (connected) online.add(server.id)
+            }
+            onlineServerIds = online
+            delay(30_000)
+        }
+    }
+
     fun refresh() {
         if (serverUrl.isBlank() || apiKey.isBlank()) {
             error = "Enter the companion URL and API key in Settings."
@@ -441,8 +608,19 @@ fun AllerfluxApp(context: Context) {
         scope.launch {
             loading = true
             error = ""
-            try { overview = loadOverview(serverUrl, apiKey) }
-            catch (e: Exception) { overview = Overview(message = "Connection failed"); error = e.message ?: "Unable to load overview" }
+            try {
+                overview = loadOverview(serverUrl, apiKey)
+                onlineServerIds = if (overview.connected) onlineServerIds + selectedServerId
+                    else onlineServerIds - selectedServerId
+            } catch (e: Exception) {
+                overview = Overview(message = "Connection failed")
+                onlineServerIds = onlineServerIds - selectedServerId
+                error = e.message ?: "Unable to load overview"
+            }
+            try { hourlyUsers = loadHourlyUsers(serverUrl, apiKey); hourlyUsersError = "" }
+            catch (e: Exception) { hourlyUsersError = e.message ?: "Unable to load 24-hour user trends" }
+            try { dashboardAnalytics = loadDashboardAnalytics(serverUrl, apiKey); dashboardAnalyticsError = "" }
+            catch (e: Exception) { dashboardAnalyticsError = e.message ?: "Unable to load playback rankings" }
             try { sessions = loadSessions(serverUrl, apiKey); activityError = "" }
             catch (e: Exception) { activityError = e.message ?: "Unable to load sessions" }
             try { history = loadHistory(serverUrl, apiKey); historyError = "" }
@@ -473,57 +651,196 @@ fun AllerfluxApp(context: Context) {
         }
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = Accent, onBackground = Color.White, onSurface = Color.White)) {
-        Scaffold(containerColor = Ink, bottomBar = {
-            NavigationBar(containerColor = Panel) {
-                listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
-                    NavigationBarItem(selected = selected == tab, onClick = { selected = tab },
-                        icon = { Icon(when (tab) {
+    MaterialTheme(colorScheme = darkColorScheme(background = Ink, surface = Panel, primary = AccentPurple,
+        secondary = Accent, onBackground = Color.White, onSurface = Color.White)) {
+        Scaffold(containerColor = Ink, floatingActionButton = {
+            if (selected == "Servers" || selected == "Settings") {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        selectedServerId = ""
+                        serverNameDraft = ""
+                        urlDraft = ""
+                        keyDraft = ""
+                        error = ""
+                        selected = "Settings"
+                    },
+                    containerColor = Color(0xFF1A2230),
+                    contentColor = Color.White,
+                    icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                    text = { Text("Add server", fontWeight = FontWeight.Medium) },
+                    shape = RoundedCornerShape(26.dp)
+                )
+            }
+        }, bottomBar = {
+            if (selected != "Servers") Column(Modifier.fillMaxWidth().background(Ink)) {
+                Divider(color = Border.copy(alpha = 0.85f), thickness = 1.dp)
+                Row(Modifier.fillMaxWidth().navigationBarsPadding()
+                    .padding(horizontal = 7.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    listOf("Overview", "Activity", "Library", "Reports", "More").forEach { tab ->
+                        val active = selected == tab
+                        val tabIcon = when (tab) {
                             "Overview" -> Icons.Rounded.Dashboard
                             "Activity" -> Icons.Rounded.PlayCircle
                             "Library" -> Icons.Rounded.VideoLibrary
                             "Reports" -> Icons.Rounded.QueryStats
                             else -> Icons.Rounded.MoreHoriz
-                        }, contentDescription = tab) },
-                        label = { Text(tab) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = Accent, selectedTextColor = Accent,
-                            indicatorColor = Color(0xFF203B42), unselectedTextColor = Muted))
+                        }
+                        Column(Modifier.weight(1f).clickable { selected = tab }
+                            .padding(vertical = 1.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Box(Modifier.width(56.dp).height(32.dp)
+                                .background(if (active) Color(0xFF203B42) else Color.Transparent,
+                                    RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center) {
+                                Icon(tabIcon, contentDescription = tab,
+                                    tint = if (active) Accent else Muted,
+                                    modifier = Modifier.size(20.dp))
+                            }
+                            Text(tab, color = if (active) Color.White else Muted,
+                                fontSize = 9.sp,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
+                        }
+                    }
                 }
             }
         }) { padding ->
             LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
-                    Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
-                        modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.size(50.dp)) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Rounded.GraphicEq, contentDescription = null, tint = Accent,
-                                        modifier = Modifier.size(27.dp))
-                                }
-                            }
+                    if (selected == "Servers") {
+                        Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 9.dp, bottom = 22.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Allerflux logo",
+                                modifier = Modifier.size(54.dp))
+                            else Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux", tint = Accent,
+                                modifier = Modifier.size(48.dp))
+                            Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("ALLERIA LABS", color = Accent, fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
-                                Text("Allerflux", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                                Text("Media server intelligence", color = Muted, fontSize = 11.sp)
+                                Text("ALLERFLUX", color = Color.White, fontSize = 20.sp,
+                                    fontWeight = FontWeight.Medium, letterSpacing = 2.8.sp)
+                                Text("ALLERIA LABS", color = Muted, fontSize = 10.sp, letterSpacing = 2.8.sp)
                             }
-                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Surface(color = if (overview.connected) Color(0xFF173B36) else Color(0xFF3B2B2B),
-                                    shape = RoundedCornerShape(30.dp)) {
-                                    Text(if (overview.connected) "ONLINE" else "SETUP",
-                                        color = if (overview.connected) Accent else Color(0xFFFFB5A8),
-                                        fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+                            Surface(color = Color(0xFF1A2230), shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                                modifier = Modifier.size(46.dp).clickable { selected = "Settings" }) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Rounded.Settings, contentDescription = "Settings",
+                                        tint = Muted, modifier = Modifier.size(21.dp))
                                 }
-                                IconButton(onClick = { selected = "Settings" }) {
-                                    Icon(Icons.Rounded.Settings, "Settings", tint = Color.White)
+                            }
+                        }
+                    } else {
+                        Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 5.dp, bottom = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { selected = "Servers"; error = "" },
+                                modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to servers",
+                                    tint = Muted, modifier = Modifier.size(22.dp))
+                            }
+                            if (logoBitmap != null) Image(bitmap = logoBitmap, contentDescription = "Allerflux orbital logo",
+                                modifier = Modifier.size(34.dp))
+                            else Icon(Icons.Rounded.QueryStats, contentDescription = "Allerflux", tint = Accent,
+                                modifier = Modifier.size(30.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text("Allerflux", color = Color.White, fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp)
+                                Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp,
+                                    letterSpacing = 0.85.sp)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Box(Modifier.size(7.dp).background(if (overview.connected) StatusGreen else Color(0xFFFFB86B), CircleShape))
+                                Text(if (overview.connected) "ONLINE" else "SETUP",
+                                    color = if (overview.connected) StatusGreen else Color(0xFFFFB86B),
+                                    fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                            IconButton(onClick = { refresh() }, modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.Refresh, "Refresh", tint = Muted, modifier = Modifier.size(20.dp))
+                            }
+                            IconButton(onClick = { selected = "Settings" }, modifier = Modifier.size(38.dp)) {
+                                Icon(Icons.Rounded.Settings, "Settings", tint = Muted, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                        Divider(color = Border.copy(alpha = 0.75f), thickness = 1.dp)
+                    }
+                }
+                if (selected == "Servers") {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("ALLERIA LABS  ·  INFRASTRUCTURE", color = BrandRed, fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
+                            Text("Servers", color = Color.White, fontSize = 23.sp,
+                                fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp)
+                            Text("Your connected infrastructure at a glance", color = Muted,
+                                fontSize = 12.sp, letterSpacing = 0.2.sp)
+                        }
+                    }
+                    item {
+                        val total = servers.size
+                        val online = onlineServerIds.size.coerceAtMost(total)
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+                            ServerStatCard(total.toString(), "Servers", Modifier.weight(1f))
+                            ServerStatCard(online.toString(), "Online", Modifier.weight(1f), StatusGreen)
+                            ServerStatCard((total - online).toString(), "Offline", Modifier.weight(1f))
+                            ServerStatCard(if (total == 0) "—" else "${online * 100 / total}%", "Availability", Modifier.weight(1.25f))
+                        }
+                    }
+                    if (servers.isEmpty()) {
+                        item {
+                            Surface(color = Panel, shape = RoundedCornerShape(28.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                                modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                                    Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(34.dp))
+                                    Text("No servers registered", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("Add your first Allerflux companion connection to start monitoring your Jellyfin server.",
+                                        color = Muted, fontSize = 12.sp, lineHeight = 19.sp)
+                                    TextButton(onClick = { selected = "Settings" }) { Text("Configure first server", color = BrandRed) }
+                                }
+                            }
+                        }
+                    }
+                    items(servers) { server ->
+                        val online = server.id in onlineServerIds
+                        Surface(color = Color(0xFF141720), shape = RoundedCornerShape(22.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedServerId = server.id
+                                serverNameDraft = server.name
+                                serverUrl = server.url
+                                apiKey = server.apiKey
+                                urlDraft = server.url
+                                keyDraft = server.apiKey
+                                selected = "Overview"
+                                error = ""
+                                refresh()
+                            }) {
+                            Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Surface(color = Color(0xFF1C2433), shape = RoundedCornerShape(18.dp), modifier = Modifier.size(48.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(22.dp))
+                                    }
+                                }
+                                Spacer(Modifier.width(11.dp))
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(server.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(android.net.Uri.parse(server.url).host ?: server.url,
+                                        color = Muted, fontSize = 9.sp, maxLines = 1)
+                                    Text("HOME", color = BrandRed, fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
+                                }
+                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Box(Modifier.size(7.dp).background(if (online) StatusGreen else Color(0xFFFF6B78), CircleShape))
+                                        Text(if (online) "Online" else "Offline",
+                                            color = if (online) StatusGreen else Color(0xFFFF6B78), fontSize = 10.sp)
+                                    }
+                                    Icon(Icons.Rounded.ExpandMore, contentDescription = "Open server",
+                                        tint = Muted, modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
@@ -531,17 +848,17 @@ fun AllerfluxApp(context: Context) {
                 }
                 if (selected == "Overview") {
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+                        Surface(color = Panel, shape = RoundedCornerShape(20.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("SERVER SNAPSHOT", color = Accent, fontSize = 10.sp,
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("SERVER SNAPSHOT", color = Accent, fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                                 Text(if (overview.connected) "Your media server, at a glance" else "Bring your media server into focus",
-                                    color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                    color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                                 Text(if (overview.connected) "Live Jellyfin status with observed activity and library intelligence."
                                     else "Connect your Allerflux companion to see live sessions, library health and viewing trends.",
-                                    color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                                    color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Icon(if (overview.connected) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
@@ -550,12 +867,13 @@ fun AllerfluxApp(context: Context) {
                                         modifier = Modifier.size(16.dp))
                                     Text(if (overview.connected) "Jellyfin connection established" else "Connection setup required",
                                         color = if (overview.connected) Accent else Color(0xFFFFB86B),
-                                        fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                        fontSize = 10.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
                     }
                 }
+                if (selected != "Servers") {
                 item { SectionHeading(when (selected) {
                     "Overview" -> "Server overview"
                     "Activity" -> "Live activity"
@@ -569,6 +887,8 @@ fun AllerfluxApp(context: Context) {
                     else -> "About Allerflux"
                 }) }
 
+                }
+
                 if (selected == "Overview") {
                     item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MetricCard("Registered users", overview.users, "Jellyfin accounts", Modifier.weight(1f))
@@ -578,6 +898,20 @@ fun AllerfluxApp(context: Context) {
                         MetricCard("Playing now", overview.playing, "Currently playing", Modifier.weight(1f))
                         MetricCard("Paused", overview.paused, "Paused sessions", Modifier.weight(1f))
                     } }
+                    item { SectionHeading("Live viewing") }
+                    item { MetricCard("Currently watching users", dashboardAnalytics.watchingUsers.size.toString(),
+                        dashboardAnalytics.watchingUsers.joinToString(", ").ifBlank { "No active viewers" }) }
+                    item { RankingListCard("Movies being watched now", dashboardAnalytics.currentMovies, "No movies currently playing") }
+                    item { SectionHeading("Movie rankings · 30 days") }
+                    item { RankingListCard("Most played movies", dashboardAnalytics.mostPlayed, "No PlaybackStart movie events recorded") }
+                    item { RankingListCard("Most completed movies", dashboardAnalytics.mostCompleted, "No confirmed movie completions recorded") }
+                    item { RankingListCard("Top users by watch time", dashboardAnalytics.topViewers, "No playing-session observations recorded") }
+                    if (dashboardAnalyticsError.isNotBlank()) item { InfoCard("PLAYBACK ANALYTICS", "Some rankings are unavailable", dashboardAnalyticsError, "") }
+                    if (dashboardAnalytics.watchTimeNote.isNotBlank()) item { Text(dashboardAnalytics.watchTimeNote,
+                        color = Muted, fontSize = 9.sp, lineHeight = 14.sp) }
+                    item { SectionHeading("User activity · 24 hours") }
+                    item { HourlyTrendCard("User online", "Peak concurrent logged-in users per hour", hourlyUsers, true, hourlyUsersError) }
+                    item { HourlyTrendCard("Today's users", "Unique accounts active in each hour", hourlyUsers, false, hourlyUsersError) }
                     item { InfoCard("COMPANION CONNECTION", overview.message,
                         if (overview.connected) serverUrl else "Configure your companion URL and API key to load live server data.", error) }
                     item { InfoCard("DATA COLLECTION", "Snapshot-based analytics",
@@ -625,7 +959,7 @@ fun AllerfluxApp(context: Context) {
                             val idleGroups = idleSessions.groupBy { it.user.trim().lowercase() }
                             items(idleGroups.values.toList()) { group -> AccountSessionsCard(group) }
                             item { Text("Idle connections are still being reported by Jellyfin. They are not counted as active playback.",
-                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                                color = Muted, fontSize = 10.sp, lineHeight = 16.sp) }
                         }
                     }
                 }
@@ -653,7 +987,7 @@ fun AllerfluxApp(context: Context) {
                 if (selected == "Reports") {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Text("REPORTING PERIOD", color = Muted, fontSize = 10.sp,
+                            Text("REPORTING PERIOD", color = Muted, fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 listOf(7, 30, 90, 365).forEach { days ->
@@ -661,7 +995,7 @@ fun AllerfluxApp(context: Context) {
                                         label = { Text(when (days) { 7 -> "7D"; 30 -> "30D"; 90 -> "90D"; else -> "1Y" }) })
                                 }
                             }
-                            Text("GROUP BY", color = Muted, fontSize = 10.sp,
+                            Text("GROUP BY", color = Muted, fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 listOf("day", "week", "month").forEach { group ->
@@ -699,7 +1033,7 @@ fun AllerfluxApp(context: Context) {
                                 "${compareSummary.completions.current} now · ${compareSummary.completions.previous} prior", Modifier.weight(1f))
                         } }
                         item { Text("Comparison uses the immediately preceding period of equal length. Snapshot and webhook event totals remain separate.",
-                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                            color = Muted, fontSize = 10.sp, lineHeight = 16.sp) }
                     }
                     item { SectionHeading("Playback events") }
                     if (eventError.isNotBlank()) {
@@ -715,11 +1049,11 @@ fun AllerfluxApp(context: Context) {
                             MetricCard("Event viewers", eventSummary.users.toString(), "Distinct user IDs", Modifier.weight(1f))
                         } }
                         item { Text("Event-based counts are separate from periodic snapshot estimates. A stop is not automatically a completion, and watch duration is not inferred.",
-                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                            color = Muted, fontSize = 10.sp, lineHeight = 16.sp) }
                     }
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("EXPORT REPORT", color = Muted, fontSize = 10.sp,
+                            Text("EXPORT REPORT", color = Muted, fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedButton(onClick = {
@@ -742,20 +1076,20 @@ fun AllerfluxApp(context: Context) {
                                     Text("Export PDF")
                                 }
                             }
-                            if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 12.sp)
+                            if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 11.sp)
                         }
                     }
                     item { SectionHeading("${reportGranularity.replaceFirstChar { it.uppercase() }} observed activity") }
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
+                        Surface(color = Panel, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 11.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("● Viewers", color = Accent, fontSize = 11.sp)
-                                    Text("● Titles", color = Color(0xFFFFB86B), fontSize = 11.sp)
+                                    Text("● Viewers", color = Accent, fontSize = 10.sp)
+                                    Text("● Titles", color = Color(0xFFFFB86B), fontSize = 10.sp)
                                 }
                                 if (reportDetails.daily.isEmpty()) {
-                                    Text("No observations recorded in this period.", color = Muted, fontSize = 13.sp)
+                                    Text("No observations recorded in this period.", color = Muted, fontSize = 12.sp)
                                 } else {
                                     Canvas(Modifier.fillMaxWidth().height(120.dp)) {
                                         val maxValue = (reportDetails.daily.maxOfOrNull { maxOf(it.users, it.titles) } ?: 0).coerceAtLeast(1)
@@ -772,8 +1106,8 @@ fun AllerfluxApp(context: Context) {
                                         }
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(reportDetails.daily.first().date, color = Muted, fontSize = 10.sp)
-                                        Text(reportDetails.daily.last().date, color = Muted, fontSize = 10.sp)
+                                        Text(reportDetails.daily.first().date, color = Muted, fontSize = 9.sp)
+                                        Text(reportDetails.daily.last().date, color = Muted, fontSize = 9.sp)
                                     }
                                 }
                             }
@@ -784,7 +1118,7 @@ fun AllerfluxApp(context: Context) {
                         Spacer(Modifier.weight(1f))
                         TextButton(onClick = { selected = "Top Videos" }) { Text("See all", color = Accent) }
                     } }
-                    item { Text("Ranked by observed playback samples, with distinct viewers shown for each title.", color = Muted, fontSize = 12.sp) }
+                    item { Text("Ranked by observed playback samples, with distinct viewers shown for each title.", color = Muted, fontSize = 11.sp) }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO TITLE DATA", "No ranked titles yet", "Playback observations will populate this list.", "") }
                     items(reportDetails.topTitles) { title ->
                         InfoCard(title.type, title.name, "${title.users} distinct viewers", "${title.samples} observed playback samples")
@@ -844,24 +1178,24 @@ fun AllerfluxApp(context: Context) {
 
                 if (selected == "More") {
                     item {
-                        Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
+                        Surface(color = PanelElevated, shape = RoundedCornerShape(28.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("YOUR WORKSPACE", color = Accent, fontSize = 10.sp,
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("YOUR WORKSPACE", color = Accent, fontSize = 9.sp,
                                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                                Text("More from Allerflux", color = Color.White, fontSize = 21.sp,
+                                Text("More from Allerflux", color = Color.White, fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold)
                                 Text("Explore deeper insights and manage your server connection.",
-                                    color = Muted, fontSize = 13.sp)
+                                    color = Muted, fontSize = 12.sp)
                             }
                         }
                     }
-                    item { Text("INSIGHTS", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
+                    item { Text("INSIGHTS", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
                     item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
                     item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
-                    item { Text("MANAGE", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
+                    item { Text("MANAGE", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
                     item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
                     item { InfoCard("ALLERIA LABS", "One view of your media server",
@@ -880,7 +1214,7 @@ fun AllerfluxApp(context: Context) {
                         item { InfoCard("IDLE SESSION RULE", "Threshold: " + formatDuration(alertSummary.idleThreshold.toLong()),
                             "Alerts are raised only when Jellyfin provides a usable last-activity timestamp. Cooldown: ${alertSummary.cooldown} minutes.",
                             if (alertSummary.outboundEnabled) "Outbound webhook notifications enabled" else "In-app history only · outbound webhook not configured") }
-                        item { Text("Recent alert history", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
+                        item { Text("Recent alert history", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
                         if (alertHistory.isEmpty()) {
                             item { InfoCard("ALL CLEAR", "No alert history yet",
                                 "Idle-session and server-availability events will appear here when detected.", "") }
@@ -891,39 +1225,132 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                         item { Text("Allerflux alerts are informational and read-only. The app never disconnects or changes Jellyfin sessions.",
-                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                            color = Muted, fontSize = 10.sp, lineHeight = 16.sp) }
                     }
                 }
                 if (selected == "Settings") {
+                    item { SectionHeading("Registered Jellyfin servers") }
+                    if (servers.isEmpty()) {
+                        item { InfoCard("NO SERVERS YET", "Add your first server",
+                            "Register more than one Jellyfin server. Each connection is stored separately with encrypted credentials.", "") }
+                    }
+                    items(servers) { server ->
+                        Surface(
+                            color = if (server.id == selectedServerId) Color(0xFF222337) else Panel,
+                            shape = RoundedCornerShape(20.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (server.id == selectedServerId) 1.5.dp else 1.dp,
+                                if (server.id == selectedServerId) AccentPurple else Border
+                            ),
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedServerId = server.id
+                                serverNameDraft = server.name
+                                urlDraft = server.url
+                                keyDraft = server.apiKey
+                                serverUrl = server.url
+                                apiKey = server.apiKey
+                                selected = "Overview"
+                                error = ""
+                                refresh()
+                            }
+                        ) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Dns, contentDescription = null, tint = AccentPurple)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(server.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text(server.url, color = Muted, fontSize = 10.sp)
+                                }
+                                if (server.id == selectedServerId) Text("ACTIVE", color = Accent,
+                                    fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    item { SectionHeading(if (selectedServerId.isBlank()) "Register server" else "Edit server") }
                     item { SectionHeading("Server connection") }
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text("Companion configuration", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(if (selectedServerId.isBlank()) "New server details" else "Server details",
+                                    color = Color.White, fontWeight = FontWeight.SemiBold)
+                                OutlinedTextField(value = serverNameDraft, onValueChange = { serverNameDraft = it },
+                                    label = { Text("Server name") }, placeholder = { Text("Home Jellyfin") },
+                                    singleLine = true, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(value = urlDraft, onValueChange = { urlDraft = it }, label = { Text("Companion URL") },
                                     placeholder = { Text("http://192.168.x.x:8787") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                 OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") },
                                     visualTransformation = PasswordVisualTransformation(),
                                     singleLine = true, modifier = Modifier.fillMaxWidth())
-                                Text("For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 12.sp)
+                                Text("For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 11.sp)
                                 Button(onClick = {
                                     val nextUrl = urlDraft.trim().trimEnd('/')
                                     val nextKey = keyDraft.trim()
-                                    if (securePrefs.save(nextUrl, nextKey)) {
-                                        serverUrl = nextUrl
-                                        apiKey = nextKey
-                                        selected = "Overview"
-                                        error = ""
-                                        refresh()
-                                    } else {
-                                        error = "Unable to securely save connection settings. Please try again."
+                                    val nextName = serverNameDraft.trim().ifBlank { "Jellyfin server ${servers.size + 1}" }
+                                    if (nextUrl.isBlank() || nextKey.isBlank()) {
+                                        error = "Enter the companion URL and API key."
+                                    } else scope.launch {
+                                        val test = runCatching { loadOverview(nextUrl, nextKey) }
+                                        if (test.isFailure) {
+                                            error = "Connection test failed: ${test.exceptionOrNull()?.message}"
+                                        } else {
+                                            val id = selectedServerId.ifBlank { java.util.UUID.randomUUID().toString() }
+                                            val updated = servers.filterNot { it.id == id } +
+                                                SavedServer(id, nextName, nextUrl, nextKey)
+                                            val saved = withContext(Dispatchers.IO) {
+                                                SecurePreferences(context.applicationContext).saveServers(updated)
+                                            }
+                                            if (saved) {
+                                                servers = updated
+                                                selectedServerId = id
+                                                serverNameDraft = nextName
+                                                serverUrl = nextUrl
+                                                apiKey = nextKey
+                                                overview = test.getOrThrow()
+                                                selected = "Overview"
+                                                error = ""
+                                            } else error = "Unable to securely save server credentials."
+                                        }
                                     }
                                 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)) {
-                                    Text("Save & connect")
+                                    Text(if (selectedServerId.isBlank()) "Test & add server" else "Test & save server")
                                 }
-                                OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
+                                OutlinedButton(onClick = {
+                                    val testUrl = urlDraft.trim().trimEnd('/')
+                                    val testKey = keyDraft.trim()
+                                    scope.launch {
+                                        val result = runCatching { loadOverview(testUrl, testKey) }
+                                        error = if (result.isSuccess) "Connection successful." else
+                                            "Connection test failed: ${result.exceptionOrNull()?.message}"
+                                    }
+                                }, modifier = Modifier.fillMaxWidth()) { Text("Test connection") }
+                                if (selectedServerId.isNotBlank()) {
+                                    OutlinedButton(onClick = {
+                                        val updated = servers.filterNot { it.id == selectedServerId }
+                                        scope.launch {
+                                            val saved = withContext(Dispatchers.IO) {
+                                                SecurePreferences(context.applicationContext).saveServers(updated)
+                                            }
+                                            if (saved) {
+                                                servers = updated
+                                                val next = updated.firstOrNull()
+                                                selectedServerId = next?.id.orEmpty()
+                                                serverNameDraft = next?.name.orEmpty()
+                                                serverUrl = next?.url.orEmpty()
+                                                apiKey = next?.apiKey.orEmpty()
+                                                urlDraft = serverUrl
+                                                keyDraft = apiKey
+                                                selected = "Overview"
+                                                error = ""
+                                            } else error = "Unable to remove server."
+                                        }
+                                    }, modifier = Modifier.fillMaxWidth()) {
+                                        Icon(Icons.Rounded.DeleteOutline, contentDescription = null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Remove server")
+                                    }
+                                }
                             }
                         }
                     }
@@ -952,9 +1379,9 @@ fun AllerfluxApp(context: Context) {
                                 Spacer(Modifier.width(7.dp))
                                 Text("Download database backup")
                             }
-                            if (backupMessage.isNotBlank()) Text(backupMessage, color = Accent, fontSize = 12.sp)
+                            if (backupMessage.isNotBlank()) Text(backupMessage, color = Accent, fontSize = 11.sp)
                             Text("Database only. Keep your existing deploy/.env file and Docker volume safe. Restore is an operator-controlled maintenance step.",
-                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                                color = Muted, fontSize = 10.sp, lineHeight = 16.sp)
                         }
                     }
                     item { SectionHeading("Preferences") }
@@ -980,7 +1407,7 @@ fun AllerfluxApp(context: Context) {
                         OutlinedButton(onClick = { selected = "Settings" }) { Text("Settings") }
                     }
                 }
-                item { Text("Allerflux  •  v0.6.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.6.0  •  Alleria Labs", color = Muted, fontSize = 10.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
                 }
             }
         }
@@ -993,18 +1420,18 @@ fun AllerfluxApp(context: Context) {
 private fun QuickActionCard(title: String, detail: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier,
     onClick: () -> Unit) {
-    Surface(color = PanelElevated, shape = RoundedCornerShape(20.dp),
+    Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = modifier.heightIn(min = 112.dp).clickable(onClick = onClick)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(12.dp), modifier = Modifier.size(36.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(icon, contentDescription = null, tint = Accent, modifier = Modifier.size(20.dp))
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(detail, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                Text(title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 9.sp, lineHeight = 14.sp)
             }
         }
     }
@@ -1013,17 +1440,17 @@ private fun QuickActionCard(title: String, detail: String,
 @Composable
 private fun MoreDestination(title: String, subtitle: String, detail: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(46.dp)) {
+            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(18.dp), modifier = Modifier.size(46.dp)) {
                 Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, tint = Accent) }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(subtitle, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(detail, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+                Text(subtitle, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 11.sp, lineHeight = 17.sp)
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Muted)
         }
@@ -1035,15 +1462,15 @@ private fun MoreDestination(title: String, subtitle: String, detail: String,
 private fun AccountSessionsCard(sessions: List<SessionRow>) {
     if (sessions.isEmpty()) return
     val user = sessions.first().user
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(user, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(user, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Text(sessions.size.toString() + if (sessions.size == 1) " connection" else " connections",
-                        color = Muted, fontSize = 11.sp)
+                        color = Muted, fontSize = 10.sp)
                 }
                 val playing = sessions.count { it.state.equals("playing", true) }
                 val paused = sessions.count { it.state.equals("paused", true) }
@@ -1054,7 +1481,7 @@ private fun AccountSessionsCard(sessions: List<SessionRow>) {
                 if (index > 0) HorizontalDivider(color = Border)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(session.device, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        Text(session.device, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f))
                         Text(session.state.uppercase(), color = when (session.state.lowercase()) {
                             "playing" -> Accent
@@ -1063,12 +1490,12 @@ private fun AccountSessionsCard(sessions: List<SessionRow>) {
                         }, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                     Text(session.client + if (session.version != "Version unavailable") " · " + session.version else "",
-                        color = Muted, fontSize = 10.sp)
+                        color = Muted, fontSize = 9.sp)
                     Text(if (session.state.equals("playing", true) || session.state.equals("paused", true))
-                        session.title else "No media currently playing", color = Color.White, fontSize = 12.sp)
+                        session.title else "No media currently playing", color = Color.White, fontSize = 11.sp)
                     Text("Last activity: " + session.lastActivity +
                         (session.idleSeconds?.let { " · Idle " + formatDuration(it) } ?: ""),
-                        color = Muted, fontSize = 10.sp)
+                        color = Muted, fontSize = 9.sp)
                 }
             }
         }
@@ -1082,14 +1509,14 @@ private fun SessionCard(session: SessionRow) {
         "paused" -> Color(0xFFFFC078)
         else -> Muted
     }
-    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(26.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(session.user, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(session.device, color = Muted, fontSize = 11.sp)
+                    Text(session.user, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(session.device, color = Muted, fontSize = 10.sp)
                 }
                 Surface(color = stateColor.copy(alpha = 0.14f), shape = RoundedCornerShape(30.dp)) {
                     Text(session.state.uppercase(), color = stateColor, fontSize = 9.sp,
@@ -1098,23 +1525,23 @@ private fun SessionCard(session: SessionRow) {
                 }
             }
             Text(if (session.state == "idle") "No media currently playing" else session.title,
-                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Devices, contentDescription = null, tint = Accent, modifier = Modifier.size(14.dp))
                 Text(session.client + if (session.version != "Version unavailable") " · " + session.version else "",
-                    color = Muted, fontSize = 11.sp)
+                    color = Muted, fontSize = 10.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-                Text("Last activity: " + session.lastActivity, color = Muted, fontSize = 11.sp)
+                Text("Last activity: " + session.lastActivity, color = Muted, fontSize = 10.sp)
                 if (session.state == "idle") {
                     Text("·", color = Muted)
                     Text("Idle " + (session.idleSeconds?.let { formatDuration(it) } ?: "unknown"),
-                        color = stateColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        color = stateColor, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                 } else if (session.position > 0) {
                     Text("·", color = Muted)
                     Text((session.position / 10000000L / 60).toString() + " min in",
-                        color = Muted, fontSize = 11.sp)
+                        color = Muted, fontSize = 10.sp)
                 }
             }
         }
@@ -1125,28 +1552,28 @@ private fun SessionCard(session: SessionRow) {
 private fun LeaderboardCard(rank: Int, name: String, subtitle: String, value: Int,
     maxValue: Int, metricLabel: String) {
     val fraction = (value.toFloat() / maxValue.coerceAtLeast(1)).coerceIn(0f, 1f)
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(13.dp)) {
             Surface(color = if (rank == 1) Color(0xFF24453F) else PanelElevated,
                 shape = RoundedCornerShape(13.dp), modifier = Modifier.size(42.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(rank.toString().padStart(2, '0'),
-                        color = if (rank == 1) Accent else Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        color = if (rank == 1) Accent else Muted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, color = Muted, fontSize = 11.sp)
+                Text(name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = Muted, fontSize = 10.sp)
                 Box(Modifier.fillMaxWidth().height(5.dp).background(Border, RoundedCornerShape(8.dp))) {
                     Box(Modifier.fillMaxWidth(fraction).height(5.dp)
                         .background(Accent, RoundedCornerShape(8.dp)))
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(value.toString(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(value.toString(), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 Text(metricLabel, color = Muted, fontSize = 9.sp)
             }
         }
@@ -1155,26 +1582,135 @@ private fun LeaderboardCard(rank: Int, name: String, subtitle: String, value: In
 
 @Composable
 private fun InfoCard(title: String, heading: String, detail: String, extra: String) {
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title.uppercase(), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text(heading, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            if (detail.isNotBlank()) Text(detail, color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
-            if (extra.isNotBlank()) Text(extra, color = Color(0xFFFF9A8B), fontSize = 12.sp)
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(heading, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (detail.isNotBlank()) Text(detail, color = Muted, fontSize = 12.sp, lineHeight = 19.sp)
+            if (extra.isNotBlank()) Text(extra, color = Color(0xFFFF9A8B), fontSize = 11.sp)
         }
     }
 }
 @Composable
+private fun ServerStatCard(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Color.White) {
+    Surface(modifier = modifier.height(64.dp), color = Color(0xFF141720), shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+        Column(Modifier.padding(horizontal = 9.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(value, color = valueColor, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = Muted, fontSize = 9.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
 private fun SectionHeading(value: String) {
-    Text(value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(value.uppercase(), color = Color.White, fontSize = 17.sp,
+            fontWeight = FontWeight.Bold, letterSpacing = (-0.35).sp)
+        Box(Modifier.width(34.dp).height(2.dp)
+            .background(AccentPurple, RoundedCornerShape(2.dp)))
+    }
 }
 @Composable
+private fun HourlyTrendCard(
+    title: String,
+    subtitle: String,
+    points: List<HourlyUsersPoint>,
+    showOnline: Boolean,
+    error: String
+) {
+    val values = points.map { if (showOnline) it.onlineUsers else it.uniqueUsers }
+    val peak = values.maxOrNull() ?: 0
+    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 9.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+            Text(subtitle, color = Muted, fontSize = 10.sp)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text(peak.toString(), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(if (showOnline) "peak online" else "peak unique users/hour",
+                    color = Muted, fontSize = 9.sp, modifier = Modifier.padding(bottom = 4.dp))
+            }
+            if (error.isNotBlank()) {
+                Text("24-hour history unavailable: $error", color = Color(0xFFFF9A8B), fontSize = 9.sp)
+            } else if (points.none { (if (showOnline) it.onlineUsers else it.uniqueUsers) > 0 }) {
+                Text("Collecting hourly history. The graph will fill as the companion records sessions.",
+                    color = Muted, fontSize = 9.sp, lineHeight = 15.sp)
+            }
+            Canvas(Modifier.fillMaxWidth().height(112.dp)) {
+                val left = 5f
+                val right = size.width - 5f
+                val top = 8f
+                val bottom = size.height - 8f
+                val maxValue = (values.maxOrNull() ?: 0).coerceAtLeast(1)
+                for (line in 0..3) {
+                    val y = top + (bottom - top) * line / 3f
+                    drawLine(Border, Offset(left, y), Offset(right, y), strokeWidth = 1f)
+                }
+                if (values.size > 1) {
+                    val stepX = (right - left) / (values.size - 1)
+                    val path = androidx.compose.ui.graphics.Path()
+                    values.forEachIndexed { index, value ->
+                        val x = left + stepX * index
+                        val y = bottom - (bottom - top) * value / maxValue.toFloat()
+                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, if (showOnline) Accent else AccentPurple,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
+                    values.forEachIndexed { index, value ->
+                        val x = left + stepX * index
+                        val y = bottom - (bottom - top) * value / maxValue.toFloat()
+                        drawCircle(if (showOnline) Accent else AccentPurple, radius = 3.2f, center = Offset(x, y))
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(points.firstOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
+                Text("24-hour window · Asia/Manila", color = Muted, fontSize = 9.sp)
+                Text(points.lastOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RankingListCard(title: String, rows: List<AnalyticsRank>, emptyMessage: String) {
+    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Border),
+        modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 9.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            if (rows.isEmpty()) {
+                Text(emptyMessage, color = Muted, fontSize = 10.sp)
+            } else rows.forEachIndexed { index, row ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text((index + 1).toString().padStart(2, '0'), color = AccentPurple,
+                        fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(row.title, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        if (row.detail.isNotBlank()) Text(row.detail, color = Muted, fontSize = 9.sp)
+                    }
+                    if (row.count > 0) Text(if (title.contains("watch time", true)) formatDuration(row.count.toLong()) else row.count.toString(),
+                        color = Accent, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (index != rows.lastIndex) Divider(color = Border.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
+
+@Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, color = Muted, fontSize = 12.sp)
-            Text(value, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-            Text(detail, color = Accent, fontSize = 10.sp)
+    Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, color = Muted, fontSize = 10.sp)
+            Text(value, color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            Text(detail, color = Accent, fontSize = 9.sp)
         }
     }
 }

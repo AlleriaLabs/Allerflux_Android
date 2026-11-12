@@ -5,17 +5,21 @@ import sqlite3
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from zoneinfo import ZoneInfo
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Body
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, delete, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field
+from uuid import uuid4
 from .config import settings
 from .database import engine, SessionLocal, get_db
 from .migrations import run_migrations
-from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent
+from .models import SessionSnapshot, PlaybackEvent, AlertState, AlertEvent, JellyfinServer
+from .server_security import encrypt_secret, decrypt_secret
 from .security import require_api_key, require_webhook_key
 from .events import normalize_playback_event
 from .jellyfin import JellyfinClient
@@ -147,8 +151,6 @@ async def poll_once():
                         f'{data["device_name"] or "an unknown device"} for {data["idle_seconds"]} seconds.')
                     await notify_alert(change_alert_state(alert_key, "idle_session",
                         "Idle Jellyfin session", message, True))
-            if not data["item_id"]:
-                continue
             db.add(SessionSnapshot(
                 jellyfin_session_id=data["session_id"], user_id=data["user_id"],
                 username=data["username"], item_id=data["item_id"],
@@ -206,6 +208,92 @@ async def lifespan(app: FastAPI):
         await poll_task
 
 app = FastAPI(title="Allerflux Companion API", version="0.2.0", lifespan=lifespan)
+
+class ServerCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    url: str = Field(min_length=8, max_length=1000)
+    api_key: str = Field(min_length=1, max_length=2048)
+
+class ServerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    url: str | None = Field(default=None, min_length=8, max_length=1000)
+    api_key: str | None = Field(default=None, min_length=1, max_length=2048)
+    is_enabled: bool | None = None
+
+def server_public(row: JellyfinServer):
+    return {"id": row.id, "name": row.name, "url": row.url,
+        "is_default": row.is_default, "is_enabled": row.is_enabled,
+        "created_at": row.created_at.isoformat() if row.created_at else None}
+
+@app.get("/api/v1/servers", dependencies=[Depends(require_api_key)])
+def list_servers(db: Session = Depends(get_db)):
+    rows = db.scalars(select(JellyfinServer).order_by(JellyfinServer.is_default.desc(), JellyfinServer.name)).all()
+    return {"servers": [server_public(row) for row in rows]}
+
+@app.post("/api/v1/servers", dependencies=[Depends(require_api_key)], status_code=201)
+async def create_server(payload: ServerCreate, db: Session = Depends(get_db)):
+    try:
+        secret = encrypt_secret(payload.api_key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    url = payload.url.strip().rstrip("/")
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="Server URL must use http:// or https://")
+    row = JellyfinServer(id=str(uuid4()), name=payload.name.strip(), url=url,
+        encrypted_api_key=secret, is_default=False, is_enabled=True)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return server_public(row)
+
+@app.put("/api/v1/servers/{server_id}", dependencies=[Depends(require_api_key)])
+def update_server(server_id: str, payload: ServerUpdate, db: Session = Depends(get_db)):
+    row = db.get(JellyfinServer, server_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    if payload.name is not None: row.name = payload.name.strip()
+    if payload.url is not None:
+        url = payload.url.strip().rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=422, detail="Server URL must use http:// or https://")
+        row.url = url
+    if payload.api_key is not None:
+        try: row.encrypted_api_key = encrypt_secret(payload.api_key)
+        except RuntimeError as exc: raise HTTPException(status_code=503, detail=str(exc))
+    if payload.is_enabled is not None: row.is_enabled = payload.is_enabled
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return server_public(row)
+
+@app.delete("/api/v1/servers/{server_id}", dependencies=[Depends(require_api_key)])
+def delete_server(server_id: str, confirm: bool = Query(default=False), db: Session = Depends(get_db)):
+    row = db.get(JellyfinServer, server_id)
+    if row is None: raise HTTPException(status_code=404, detail="Server not found")
+    if not confirm: raise HTTPException(status_code=400, detail="Pass confirm=true to remove this server")
+    if row.is_default: raise HTTPException(status_code=400, detail="The default server cannot be removed")
+    db.delete(row)
+    db.commit()
+    return {"deleted": True, "id": server_id, "history_preserved": True}
+
+@app.post("/api/v1/servers/{server_id}/test", dependencies=[Depends(require_api_key)])
+async def test_server(server_id: str, db: Session = Depends(get_db)):
+    row = db.get(JellyfinServer, server_id)
+    if row is None: raise HTTPException(status_code=404, detail="Server not found")
+    try:
+        token = decrypt_secret(row.encrypted_api_key)
+        async with httpx.AsyncClient(timeout=12) as session:
+            response = await session.get(row.url + "/System/Info",
+                headers={"Authorization": f'MediaBrowser Token="{token}"'})
+            response.raise_for_status()
+            info = response.json()
+        return {"connected": True, "server_name": info.get("ServerName"),
+            "version": info.get("Version"), "id": row.id}
+    except Exception as exc:
+        return {"connected": False, "error": type(exc).__name__, "id": row.id}
+
+
+
+
 
 @app.get("/health")
 async def health():
@@ -377,6 +465,137 @@ async def overview():
         "paused": len(paused), "captured_at": datetime.now(timezone.utc).isoformat(),
         "history_mode": "snapshot_estimates",
     }
+
+@app.get("/api/v1/analytics/dashboard", dependencies=[Depends(require_api_key)])
+async def dashboard_analytics(db: Session = Depends(get_db)):
+    """Playback rankings use webhook events; watch time is explicitly an observation estimate."""
+    try:
+        sessions = await client.sessions()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jellyfin unavailable: {type(exc).__name__}")
+
+    playing = [s for s in sessions if s.get("NowPlayingItem") and not (s.get("PlayState") or {}).get("IsPaused")]
+    watching_users = {}
+    current_movies = []
+    for session in playing:
+        item = session.get("NowPlayingItem") or {}
+        uid = str(session.get("UserId") or "")
+        uname = str(session.get("UserName") or "Unknown user")
+        if uid:
+            watching_users[uid] = uname
+        if str(item.get("Type") or "").lower() == "movie":
+            current_movies.append({
+                "title": str(item.get("Name") or "Unknown movie"),
+                "username": uname,
+                "position_ticks": int((session.get("PlayState") or {}).get("PositionTicks") or 0),
+            })
+
+    now = datetime.now(timezone.utc)
+    starts = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.event_type == "PlaybackStart",
+        PlaybackEvent.occurred_at >= now - timedelta(days=30),
+    )).all()
+    stops = db.scalars(select(PlaybackEvent).where(
+        PlaybackEvent.event_type == "PlaybackStop",
+        PlaybackEvent.occurred_at >= now - timedelta(days=30),
+        PlaybackEvent.played_to_completion.is_(True),
+    )).all()
+
+    def rank_events(rows):
+        grouped = {}
+        for row in rows:
+            if str(row.media_type or "").lower() != "movie":
+                continue
+            key = row.item_id or row.item_name
+            entry = grouped.setdefault(key, {"item_id": row.item_id, "title": row.item_name, "count": 0})
+            entry["count"] += 1
+        return sorted(grouped.values(), key=lambda x: (-x["count"], x["title"].lower()))[:10]
+
+    since_snapshots = now - timedelta(days=30)
+    snapshots = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= since_snapshots,
+        SessionSnapshot.play_state == "playing",
+    )).all()
+    watch = {}
+    interval_seconds = max(10, int(settings.poll_interval_seconds))
+    for row in snapshots:
+        if not row.user_id:
+            continue
+        entry = watch.setdefault(row.user_id, {"username": row.username or "Unknown user", "seconds": 0, "samples": 0})
+        entry["seconds"] += interval_seconds
+        entry["samples"] += 1
+    top_viewers = sorted([
+        {"username": value["username"], "observed_seconds": value["seconds"], "samples": value["samples"]}
+        for value in watch.values()
+    ], key=lambda x: (-x["observed_seconds"], x["username"].lower()))[:10]
+
+    return {
+        "window_days": 30,
+        "currently_watching_users": list(watching_users.values()),
+        "currently_watching_user_count": len(watching_users),
+        "currently_watched_movies": current_movies,
+        "most_played_movies": rank_events(starts),
+        "most_completed_movies": rank_events(stops),
+        "top_viewers_by_watch_time": top_viewers,
+        "watch_time_method": "Estimated from playing session snapshots multiplied by the configured poll interval; this is an observation estimate, not exact playback duration.",
+        "ranking_source": "Jellyfin PlaybackStart and explicitly completed PlaybackStop webhook events; last 30 days.",
+    }
+
+
+@app.get("/api/v1/analytics/last-24-hours", dependencies=[Depends(require_api_key)])
+def analytics_last_24_hours(db: Session = Depends(get_db)):
+    """Hourly 24-hour trend from persisted Jellyfin session observations."""
+    local_zone = ZoneInfo("Asia/Manila")
+    now_local = datetime.now(local_zone)
+    current_hour = now_local.replace(minute=0, second=0, microsecond=0)
+    first_hour = current_hour - timedelta(hours=23)
+    since_utc = first_hour.astimezone(timezone.utc)
+    rows = db.scalars(select(SessionSnapshot).where(
+        SessionSnapshot.captured_at >= since_utc
+    ).order_by(SessionSnapshot.captured_at.asc())).all()
+
+    buckets = {}
+    for offset in range(24):
+        hour = first_hour + timedelta(hours=offset)
+        key = hour.isoformat()
+        buckets[key] = {
+            "hour": hour.strftime("%H:%M"),
+            "online_users": 0,
+            "unique_users": set(),
+            "_samples": {},
+        }
+
+    for row in rows:
+        captured = row.captured_at
+        if captured.tzinfo is None:
+            captured = captured.replace(tzinfo=timezone.utc)
+        local_time = captured.astimezone(local_zone)
+        hour = local_time.replace(minute=0, second=0, microsecond=0).isoformat()
+        bucket = buckets.get(hour)
+        if bucket is None or not row.user_id:
+            continue
+        bucket["unique_users"].add(row.user_id)
+        sample_key = captured.isoformat()
+        sample_users = bucket["_samples"].setdefault(sample_key, set())
+        sample_users.add(row.user_id)
+        bucket["online_users"] = max(bucket["online_users"], len(sample_users))
+
+    points = []
+    for bucket in buckets.values():
+        points.append({
+            "hour": bucket["hour"],
+            "online_users": bucket["online_users"],
+            "unique_users": len(bucket["unique_users"]),
+        })
+    return {
+        "timezone": "Asia/Manila",
+        "window_hours": 24,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "points": points,
+        "data_points": len(rows),
+        "accuracy_note": "Online users is the peak concurrent distinct users observed in each hour. Unique users counts distinct accounts observed at least once in that hour. Historical values require companion polling; missing observations are not backfilled.",
+    }
+
 
 @app.get("/api/v1/sessions", dependencies=[Depends(require_api_key)])
 async def current_sessions():
@@ -627,3 +846,9 @@ def item_analytics(item_id: str, db: Session = Depends(get_db)):
         },
         "accuracy_note": "Periodic observations, not exact play counts, unique playback starts, completion, or watch duration.",
     }
+
+
+# Jellyfin administration endpoints. These expose server metadata and supported
+# maintenance actions; they never alter playback sessions.
+from .admin import router as admin_router
+app.include_router(admin_router)

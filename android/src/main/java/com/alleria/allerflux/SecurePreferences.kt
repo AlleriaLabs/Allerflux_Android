@@ -9,6 +9,11 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+data class SavedServer(val id: String, val name: String, val url: String, val apiKey: String)
 
 /**
  * Stores companion connection details encrypted with an AES-GCM key held by Android Keystore.
@@ -56,15 +61,18 @@ class SecurePreferences(context: Context) {
         return String(cipher.doFinal(encrypted), Charsets.UTF_8)
     }
 
-    fun load(): Pair<String, String> {
+    fun load(): Pair<String, String> = runCatching {
         val storedUrl = secure.getString(KEY_SERVER_URL, null)
         val storedKey = secure.getString(KEY_API_KEY, null)
         if (storedUrl != null || storedKey != null) {
-            return runCatching {
-                val values = decrypt(storedUrl) to decrypt(storedKey)
+            val values = runCatching { decrypt(storedUrl) to decrypt(storedKey) }
+            if (values.isSuccess) {
                 legacy.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).apply()
-                values
-            }.getOrDefault("" to "")
+                return@runCatching values.getOrThrow()
+            }
+            // A stale/corrupt Keystore entry should not crash launch or trap the
+            // app in a permanent failed-decryption loop. Clear only these settings.
+            secure.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).commit()
         }
 
         val oldUrl = legacy.getString(KEY_SERVER_URL, "") ?: ""
@@ -72,12 +80,14 @@ class SecurePreferences(context: Context) {
         if (oldUrl.isNotBlank() || oldKey.isNotBlank()) {
             if (save(oldUrl, oldKey)) {
                 legacy.edit().remove(KEY_SERVER_URL).remove(KEY_API_KEY).apply()
-                return oldUrl to oldKey
+                oldUrl to oldKey
+            } else {
+                "" to ""
             }
-            return "" to ""
+        } else {
+            "" to ""
         }
-        return "" to ""
-    }
+    }.getOrDefault("" to "")
 
     fun save(serverUrl: String, apiKey: String): Boolean = runCatching {
         val editor = secure.edit()
@@ -86,10 +96,43 @@ class SecurePreferences(context: Context) {
         check(editor.commit()) { "Unable to persist encrypted connection settings" }
     }.isSuccess
 
+
+    fun loadServers(): List<SavedServer> = runCatching {
+        val encrypted = secure.getString(KEY_SERVERS, null)
+        if (!encrypted.isNullOrBlank()) {
+            val array = JSONArray(decrypt(encrypted))
+            return@runCatching (0 until array.length()).map { index ->
+                val item = array.getJSONObject(index)
+                SavedServer(
+                    item.optString("id", UUID.randomUUID().toString()),
+                    item.optString("name", "Jellyfin server"),
+                    item.optString("url", ""),
+                    item.optString("apiKey", "")
+                )
+            }.filter { it.url.isNotBlank() && it.apiKey.isNotBlank() }
+        }
+        val legacyPair = load()
+        if (legacyPair.first.isNotBlank() && legacyPair.second.isNotBlank()) {
+            val migrated = listOf(SavedServer("legacy", "My Jellyfin server", legacyPair.first, legacyPair.second))
+            saveServers(migrated)
+            migrated
+        } else emptyList()
+    }.getOrDefault(emptyList())
+
+    fun saveServers(servers: List<SavedServer>): Boolean = runCatching {
+        val array = JSONArray()
+        servers.forEach { server ->
+            array.put(JSONObject().put("id", server.id).put("name", server.name)
+                .put("url", server.url).put("apiKey", server.apiKey))
+        }
+        check(secure.edit().putString(KEY_SERVERS, encrypt(array.toString())).commit())
+    }.isSuccess
+
     companion object {
         private const val KEY_ALIAS = "allerflux_connection_aes_gcm_v1"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_SERVERS = "servers_json"
         private const val GCM_IV_BYTES = 12
         private const val GCM_TAG_BITS = 128
     }
