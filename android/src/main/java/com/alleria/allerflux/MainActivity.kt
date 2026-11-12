@@ -47,12 +47,12 @@ import java.io.OutputStream
 
 // Premium Allerion-style surfaces with Allerflux's own orbital emblem and cyan/purple identity.
 private val Ink = Color(0xFF0B0D12)
-private val Panel = Color(0xFF151820)
-private val PanelElevated = Color(0xFF1C202A)
-private val Accent = Color(0xFF39D5F2)
-private val AccentPurple = Color(0xFF9B72FF)
+private val Panel = Color(0xFF141720)
+private val PanelElevated = Color(0xFF1B2230)
+private val Accent = Color(0xFFFF4057)
+private val AccentPurple = Color(0xFFFF4057)
 private val Muted = Color(0xFF9AA3B5)
-private val Border = Color(0xFF2A303B)
+private val Border = Color(0xFF272D38)
 private val BrandRed = Color(0xFFFF4057)
 private val StatusGreen = Color(0xFF42D6A4)
 
@@ -668,7 +668,7 @@ fun AllerfluxApp(context: Context) {
                     contentColor = Color.White,
                     icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
                     text = { Text("Add server", fontWeight = FontWeight.Medium) },
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(26.dp)
                 )
             }
         }, bottomBar = {
@@ -700,7 +700,7 @@ fun AllerfluxApp(context: Context) {
                                     modifier = Modifier.size(20.dp))
                             }
                             Text(tab, color = if (active) Color.White else Muted,
-                                fontSize = 10.sp,
+                                fontSize = 11.sp,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
                         }
                     }
@@ -708,8 +708,8 @@ fun AllerfluxApp(context: Context) {
             }
         }) { padding ->
             LazyColumn(Modifier.fillMaxSize().background(Ink).padding(padding),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item {
                     if (selected == "Servers") {
                         Row(Modifier.fillMaxWidth().padding(start = 2.dp, end = 2.dp, top = 9.dp, bottom = 22.dp),
@@ -720,11 +720,11 @@ fun AllerfluxApp(context: Context) {
                                 modifier = Modifier.size(48.dp))
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("ALLERFLUX", color = Color.White, fontSize = 23.sp,
+                                Text("ALLERFLUX", color = Color.White, fontSize = 27.sp,
                                     fontWeight = FontWeight.Medium, letterSpacing = 2.8.sp)
-                                Text("ALLERIA LABS", color = Muted, fontSize = 11.sp, letterSpacing = 2.8.sp)
+                                Text("ALLERIA LABS", color = Muted, fontSize = 13.sp, letterSpacing = 2.8.sp)
                             }
-                            Surface(color = Color(0xFF1A2230), shape = RoundedCornerShape(16.dp),
+                            Surface(color = Color(0xFF1A2230), shape = RoundedCornerShape(20.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                                 modifier = Modifier.size(46.dp).clickable { selected = "Settings" }) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -747,9 +747,9 @@ fun AllerfluxApp(context: Context) {
                                 modifier = Modifier.size(30.dp))
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                                Text("Allerflux", color = Color.White, fontSize = 18.sp,
+                                Text("Allerflux", color = Color.White, fontSize = 21.sp,
                                     fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp)
-                                Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 9.sp,
+                                Text("MEDIA SERVER INTELLIGENCE", color = Muted, fontSize = 10.sp,
                                     letterSpacing = 0.85.sp)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically,
@@ -757,7 +757,7 @@ fun AllerfluxApp(context: Context) {
                                 Box(Modifier.size(7.dp).background(if (overview.connected) StatusGreen else Color(0xFFFFB86B), CircleShape))
                                 Text(if (overview.connected) "ONLINE" else "SETUP",
                                     color = if (overview.connected) StatusGreen else Color(0xFFFFB86B),
-                                    fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                             IconButton(onClick = { refresh() }, modifier = Modifier.size(38.dp)) {
                                 Icon(Icons.Rounded.Refresh, "Refresh", tint = Muted, modifier = Modifier.size(20.dp))
@@ -772,12 +772,12 @@ fun AllerfluxApp(context: Context) {
                 if (selected == "Servers") {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("ALLERIA LABS  ·  INFRASTRUCTURE", color = BrandRed, fontSize = 11.sp,
+                            Text("ALLERIA LABS  ·  INFRASTRUCTURE", color = BrandRed, fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
                             Text("Servers", color = Color.White, fontSize = 31.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp)
                             Text("Your connected infrastructure at a glance", color = Muted,
-                                fontSize = 14.sp, letterSpacing = 0.2.sp)
+                                fontSize = 16.sp, letterSpacing = 0.2.sp)
                         }
                     }
                     item {
@@ -792,14 +792,14 @@ fun AllerfluxApp(context: Context) {
                     }
                     if (servers.isEmpty()) {
                         item {
-                            Surface(color = Panel, shape = RoundedCornerShape(24.dp),
+                            Surface(color = Panel, shape = RoundedCornerShape(28.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                                 modifier = Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                                     Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(34.dp))
-                                    Text("No servers registered", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("No servers registered", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                                     Text("Add your first Allerflux companion connection to start monitoring your Jellyfin server.",
-                                        color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+                                        color = Muted, fontSize = 15.sp, lineHeight = 19.sp)
                                     TextButton(onClick = { selected = "Settings" }) { Text("Configure first server", color = BrandRed) }
                                 }
                             }
@@ -807,7 +807,7 @@ fun AllerfluxApp(context: Context) {
                     }
                     items(servers) { server ->
                         val online = server.id in onlineServerIds
-                        Surface(color = Color(0xFF141720), shape = RoundedCornerShape(18.dp),
+                        Surface(color = Color(0xFF141720), shape = RoundedCornerShape(22.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth().clickable {
                                 selectedServerId = server.id
@@ -821,23 +821,23 @@ fun AllerfluxApp(context: Context) {
                                 refresh()
                             }) {
                             Row(Modifier.padding(horizontal = 14.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Surface(color = Color(0xFF1C2433), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(48.dp)) {
+                                Surface(color = Color(0xFF1C2433), shape = RoundedCornerShape(18.dp), modifier = Modifier.size(48.dp)) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(Icons.Rounded.Dns, contentDescription = null, tint = Muted, modifier = Modifier.size(22.dp))
                                     }
                                 }
                                 Spacer(Modifier.width(11.dp))
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(server.name, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(server.name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                                     Text(android.net.Uri.parse(server.url).host ?: server.url,
-                                        color = Muted, fontSize = 10.sp, maxLines = 1)
-                                    Text("HOME", color = BrandRed, fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
+                                        color = Muted, fontSize = 11.sp, maxLines = 1)
+                                    Text("HOME", color = BrandRed, fontSize = 10.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.4.sp)
                                 }
                                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                         Box(Modifier.size(7.dp).background(if (online) StatusGreen else Color(0xFFFF6B78), CircleShape))
                                         Text(if (online) "Online" else "Offline",
-                                            color = if (online) StatusGreen else Color(0xFFFF6B78), fontSize = 11.sp)
+                                            color = if (online) StatusGreen else Color(0xFFFF6B78), fontSize = 13.sp)
                                     }
                                     Icon(Icons.Rounded.ExpandMore, contentDescription = "Open server",
                                         tint = Muted, modifier = Modifier.size(20.dp))
@@ -848,17 +848,17 @@ fun AllerfluxApp(context: Context) {
                 }
                 if (selected == "Overview") {
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(16.dp),
+                        Surface(color = Panel, shape = RoundedCornerShape(20.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("SERVER SNAPSHOT", color = Accent, fontSize = 10.sp,
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("SERVER SNAPSHOT", color = Accent, fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
                                 Text(if (overview.connected) "Your media server, at a glance" else "Bring your media server into focus",
-                                    color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                                    color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                                 Text(if (overview.connected) "Live Jellyfin status with observed activity and library intelligence."
                                     else "Connect your Allerflux companion to see live sessions, library health and viewing trends.",
-                                    color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+                                    color = Muted, fontSize = 14.sp, lineHeight = 17.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Icon(if (overview.connected) Icons.Rounded.CheckCircle else Icons.Rounded.Info,
@@ -867,7 +867,7 @@ fun AllerfluxApp(context: Context) {
                                         modifier = Modifier.size(16.dp))
                                     Text(if (overview.connected) "Jellyfin connection established" else "Connection setup required",
                                         color = if (overview.connected) Accent else Color(0xFFFFB86B),
-                                        fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                        fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 }
                             }
                         }
@@ -908,7 +908,7 @@ fun AllerfluxApp(context: Context) {
                     item { RankingListCard("Top users by watch time", dashboardAnalytics.topViewers, "No playing-session observations recorded") }
                     if (dashboardAnalyticsError.isNotBlank()) item { InfoCard("PLAYBACK ANALYTICS", "Some rankings are unavailable", dashboardAnalyticsError, "") }
                     if (dashboardAnalytics.watchTimeNote.isNotBlank()) item { Text(dashboardAnalytics.watchTimeNote,
-                        color = Muted, fontSize = 10.sp, lineHeight = 14.sp) }
+                        color = Muted, fontSize = 11.sp, lineHeight = 14.sp) }
                     item { SectionHeading("User activity · 24 hours") }
                     item { HourlyTrendCard("User online", "Peak concurrent logged-in users per hour", hourlyUsers, true, hourlyUsersError) }
                     item { HourlyTrendCard("Today's users", "Unique accounts active in each hour", hourlyUsers, false, hourlyUsersError) }
@@ -959,7 +959,7 @@ fun AllerfluxApp(context: Context) {
                             val idleGroups = idleSessions.groupBy { it.user.trim().lowercase() }
                             items(idleGroups.values.toList()) { group -> AccountSessionsCard(group) }
                             item { Text("Idle connections are still being reported by Jellyfin. They are not counted as active playback.",
-                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                                color = Muted, fontSize = 13.sp, lineHeight = 16.sp) }
                         }
                     }
                 }
@@ -987,7 +987,7 @@ fun AllerfluxApp(context: Context) {
                 if (selected == "Reports") {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Text("REPORTING PERIOD", color = Muted, fontSize = 10.sp,
+                            Text("REPORTING PERIOD", color = Muted, fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 listOf(7, 30, 90, 365).forEach { days ->
@@ -995,7 +995,7 @@ fun AllerfluxApp(context: Context) {
                                         label = { Text(when (days) { 7 -> "7D"; 30 -> "30D"; 90 -> "90D"; else -> "1Y" }) })
                                 }
                             }
-                            Text("GROUP BY", color = Muted, fontSize = 10.sp,
+                            Text("GROUP BY", color = Muted, fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 listOf("day", "week", "month").forEach { group ->
@@ -1033,7 +1033,7 @@ fun AllerfluxApp(context: Context) {
                                 "${compareSummary.completions.current} now · ${compareSummary.completions.previous} prior", Modifier.weight(1f))
                         } }
                         item { Text("Comparison uses the immediately preceding period of equal length. Snapshot and webhook event totals remain separate.",
-                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                            color = Muted, fontSize = 13.sp, lineHeight = 16.sp) }
                     }
                     item { SectionHeading("Playback events") }
                     if (eventError.isNotBlank()) {
@@ -1049,11 +1049,11 @@ fun AllerfluxApp(context: Context) {
                             MetricCard("Event viewers", eventSummary.users.toString(), "Distinct user IDs", Modifier.weight(1f))
                         } }
                         item { Text("Event-based counts are separate from periodic snapshot estimates. A stop is not automatically a completion, and watch duration is not inferred.",
-                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                            color = Muted, fontSize = 13.sp, lineHeight = 16.sp) }
                     }
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("EXPORT REPORT", color = Muted, fontSize = 10.sp,
+                            Text("EXPORT REPORT", color = Muted, fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 OutlinedButton(onClick = {
@@ -1076,20 +1076,20 @@ fun AllerfluxApp(context: Context) {
                                     Text("Export PDF")
                                 }
                             }
-                            if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 12.sp)
+                            if (exportMessage.isNotBlank()) Text(exportMessage, color = Accent, fontSize = 14.sp)
                         }
                     }
                     item { SectionHeading("${reportGranularity.replaceFirstChar { it.uppercase() }} observed activity") }
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 12.sp)
+                        Surface(color = Panel, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("${reportGranularity.replaceFirstChar { it.uppercase() }} viewers and distinct titles · last $reportDays days", color = Muted, fontSize = 14.sp)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("● Viewers", color = Accent, fontSize = 11.sp)
-                                    Text("● Titles", color = Color(0xFFFFB86B), fontSize = 11.sp)
+                                    Text("● Viewers", color = Accent, fontSize = 13.sp)
+                                    Text("● Titles", color = Color(0xFFFFB86B), fontSize = 13.sp)
                                 }
                                 if (reportDetails.daily.isEmpty()) {
-                                    Text("No observations recorded in this period.", color = Muted, fontSize = 13.sp)
+                                    Text("No observations recorded in this period.", color = Muted, fontSize = 15.sp)
                                 } else {
                                     Canvas(Modifier.fillMaxWidth().height(120.dp)) {
                                         val maxValue = (reportDetails.daily.maxOfOrNull { maxOf(it.users, it.titles) } ?: 0).coerceAtLeast(1)
@@ -1106,8 +1106,8 @@ fun AllerfluxApp(context: Context) {
                                         }
                                     }
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(reportDetails.daily.first().date, color = Muted, fontSize = 10.sp)
-                                        Text(reportDetails.daily.last().date, color = Muted, fontSize = 10.sp)
+                                        Text(reportDetails.daily.first().date, color = Muted, fontSize = 11.sp)
+                                        Text(reportDetails.daily.last().date, color = Muted, fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -1118,7 +1118,7 @@ fun AllerfluxApp(context: Context) {
                         Spacer(Modifier.weight(1f))
                         TextButton(onClick = { selected = "Top Videos" }) { Text("See all", color = Accent) }
                     } }
-                    item { Text("Ranked by observed playback samples, with distinct viewers shown for each title.", color = Muted, fontSize = 12.sp) }
+                    item { Text("Ranked by observed playback samples, with distinct viewers shown for each title.", color = Muted, fontSize = 14.sp) }
                     if (reportDetails.topTitles.isEmpty()) item { InfoCard("NO TITLE DATA", "No ranked titles yet", "Playback observations will populate this list.", "") }
                     items(reportDetails.topTitles) { title ->
                         InfoCard(title.type, title.name, "${title.users} distinct viewers", "${title.samples} observed playback samples")
@@ -1178,24 +1178,24 @@ fun AllerfluxApp(context: Context) {
 
                 if (selected == "More") {
                     item {
-                        Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
+                        Surface(color = PanelElevated, shape = RoundedCornerShape(28.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Border),
                             modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("YOUR WORKSPACE", color = Accent, fontSize = 10.sp,
+                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("YOUR WORKSPACE", color = Accent, fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                                Text("More from Allerflux", color = Color.White, fontSize = 21.sp,
+                                Text("More from Allerflux", color = Color.White, fontSize = 25.sp,
                                     fontWeight = FontWeight.Bold)
                                 Text("Explore deeper insights and manage your server connection.",
-                                    color = Muted, fontSize = 13.sp)
+                                    color = Muted, fontSize = 15.sp)
                             }
                         }
                     }
-                    item { Text("INSIGHTS", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
+                    item { Text("INSIGHTS", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Top Viewers", "Viewer leaderboard", "Explore observed activity by Jellyfin account", Icons.Rounded.Leaderboard) { selected = "Top Viewers" } }
                     item { MoreDestination("Top Videos", "Title leaderboard", "See movies and episodes with the most observed samples", Icons.Rounded.Movie) { selected = "Top Videos" } }
                     item { MoreDestination("Alerts", "Server alerts", "Idle-session and Jellyfin availability alerts", Icons.Rounded.NotificationsActive) { selected = "Alerts" } }
-                    item { Text("MANAGE", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
+                    item { Text("MANAGE", color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp) }
                     item { MoreDestination("Settings", "Connection & preferences", "Manage your companion URL, API key and connection", Icons.Rounded.Settings) { selected = "Settings" } }
                     item { MoreDestination("About", "About Allerflux", "Product information, version and data transparency", Icons.Rounded.Info) { selected = "About" } }
                     item { InfoCard("ALLERIA LABS", "One view of your media server",
@@ -1214,7 +1214,7 @@ fun AllerfluxApp(context: Context) {
                         item { InfoCard("IDLE SESSION RULE", "Threshold: " + formatDuration(alertSummary.idleThreshold.toLong()),
                             "Alerts are raised only when Jellyfin provides a usable last-activity timestamp. Cooldown: ${alertSummary.cooldown} minutes.",
                             if (alertSummary.outboundEnabled) "Outbound webhook notifications enabled" else "In-app history only · outbound webhook not configured") }
-                        item { Text("Recent alert history", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) }
+                        item { Text("Recent alert history", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
                         if (alertHistory.isEmpty()) {
                             item { InfoCard("ALL CLEAR", "No alert history yet",
                                 "Idle-session and server-availability events will appear here when detected.", "") }
@@ -1225,7 +1225,7 @@ fun AllerfluxApp(context: Context) {
                             }
                         }
                         item { Text("Allerflux alerts are informational and read-only. The app never disconnects or changes Jellyfin sessions.",
-                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp) }
+                            color = Muted, fontSize = 13.sp, lineHeight = 16.sp) }
                     }
                 }
                 if (selected == "Settings") {
@@ -1237,7 +1237,7 @@ fun AllerfluxApp(context: Context) {
                     items(servers) { server ->
                         Surface(
                             color = if (server.id == selectedServerId) Color(0xFF222337) else Panel,
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(20.dp),
                             border = androidx.compose.foundation.BorderStroke(
                                 if (server.id == selectedServerId) 1.5.dp else 1.dp,
                                 if (server.id == selectedServerId) AccentPurple else Border
@@ -1254,15 +1254,15 @@ fun AllerfluxApp(context: Context) {
                                 refresh()
                             }
                         ) {
-                            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.Dns, contentDescription = null, tint = AccentPurple)
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(server.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                    Text(server.url, color = Muted, fontSize = 11.sp)
+                                    Text(server.url, color = Muted, fontSize = 13.sp)
                                 }
                                 if (server.id == selectedServerId) Text("ACTIVE", color = Accent,
-                                    fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -1271,8 +1271,8 @@ fun AllerfluxApp(context: Context) {
                     item { InfoCard("CONNECTION", if (overview.connected) "Connected to Jellyfin" else "Not connected",
                         if (serverUrl.isBlank()) "Configure the companion URL below." else serverUrl, error) }
                     item {
-                        Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(if (selectedServerId.isBlank()) "New server details" else "Server details",
                                     color = Color.White, fontWeight = FontWeight.SemiBold)
                                 OutlinedTextField(value = serverNameDraft, onValueChange = { serverNameDraft = it },
@@ -1283,7 +1283,7 @@ fun AllerfluxApp(context: Context) {
                                 OutlinedTextField(value = keyDraft, onValueChange = { keyDraft = it }, label = { Text("Allerflux API key") },
                                     visualTransformation = PasswordVisualTransformation(),
                                     singleLine = true, modifier = Modifier.fillMaxWidth())
-                                Text("For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 12.sp)
+                                Text("For remote access, use HTTPS or a VPN.", color = Muted, fontSize = 14.sp)
                                 Button(onClick = {
                                     val nextUrl = urlDraft.trim().trimEnd('/')
                                     val nextKey = keyDraft.trim()
@@ -1379,9 +1379,9 @@ fun AllerfluxApp(context: Context) {
                                 Spacer(Modifier.width(7.dp))
                                 Text("Download database backup")
                             }
-                            if (backupMessage.isNotBlank()) Text(backupMessage, color = Accent, fontSize = 12.sp)
+                            if (backupMessage.isNotBlank()) Text(backupMessage, color = Accent, fontSize = 14.sp)
                             Text("Database only. Keep your existing deploy/.env file and Docker volume safe. Restore is an operator-controlled maintenance step.",
-                                color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                                color = Muted, fontSize = 13.sp, lineHeight = 16.sp)
                         }
                     }
                     item { SectionHeading("Preferences") }
@@ -1407,7 +1407,7 @@ fun AllerfluxApp(context: Context) {
                         OutlinedButton(onClick = { selected = "Settings" }) { Text("Settings") }
                     }
                 }
-                item { Text("Allerflux  •  v0.6.0  •  Alleria Labs", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
+                item { Text("Allerflux  •  v0.6.0  •  Alleria Labs", color = Muted, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) }
                 }
             }
         }
@@ -1420,18 +1420,18 @@ fun AllerfluxApp(context: Context) {
 private fun QuickActionCard(title: String, detail: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier,
     onClick: () -> Unit) {
-    Surface(color = PanelElevated, shape = RoundedCornerShape(20.dp),
+    Surface(color = PanelElevated, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = modifier.heightIn(min = 112.dp).clickable(onClick = onClick)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(12.dp), modifier = Modifier.size(36.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(icon, contentDescription = null, tint = Accent, modifier = Modifier.size(20.dp))
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(detail, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
             }
         }
     }
@@ -1440,17 +1440,17 @@ private fun QuickActionCard(title: String, detail: String,
 @Composable
 private fun MoreDestination(title: String, subtitle: String, detail: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(14.dp), modifier = Modifier.size(46.dp)) {
+            Surface(color = Color(0xFF203B42), shape = RoundedCornerShape(18.dp), modifier = Modifier.size(46.dp)) {
                 Box(contentAlignment = Alignment.Center) { Icon(icon, contentDescription = null, tint = Accent) }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(subtitle, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text(detail, color = Muted, fontSize = 12.sp, lineHeight = 17.sp)
+                Text(subtitle, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(detail, color = Muted, fontSize = 14.sp, lineHeight = 17.sp)
             }
             Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Muted)
         }
@@ -1462,40 +1462,40 @@ private fun MoreDestination(title: String, subtitle: String, detail: String,
 private fun AccountSessionsCard(sessions: List<SessionRow>) {
     if (sessions.isEmpty()) return
     val user = sessions.first().user
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(user, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text(user, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text(sessions.size.toString() + if (sessions.size == 1) " connection" else " connections",
-                        color = Muted, fontSize = 11.sp)
+                        color = Muted, fontSize = 13.sp)
                 }
                 val playing = sessions.count { it.state.equals("playing", true) }
                 val paused = sessions.count { it.state.equals("paused", true) }
                 Text(when { playing > 0 -> playing.toString() + " PLAYING"; paused > 0 -> paused.toString() + " PAUSED"; else -> "IDLE" },
-                    color = if (playing > 0) Accent else Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    color = if (playing > 0) Accent else Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
             sessions.forEachIndexed { index, session ->
                 if (index > 0) HorizontalDivider(color = Border)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(session.device, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        Text(session.device, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f))
                         Text(session.state.uppercase(), color = when (session.state.lowercase()) {
                             "playing" -> Accent
                             "paused" -> Color(0xFFFFC078)
                             else -> Muted
-                        }, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                     Text(session.client + if (session.version != "Version unavailable") " · " + session.version else "",
-                        color = Muted, fontSize = 10.sp)
+                        color = Muted, fontSize = 11.sp)
                     Text(if (session.state.equals("playing", true) || session.state.equals("paused", true))
-                        session.title else "No media currently playing", color = Color.White, fontSize = 12.sp)
+                        session.title else "No media currently playing", color = Color.White, fontSize = 14.sp)
                     Text("Last activity: " + session.lastActivity +
                         (session.idleSeconds?.let { " · Idle " + formatDuration(it) } ?: ""),
-                        color = Muted, fontSize = 10.sp)
+                        color = Muted, fontSize = 11.sp)
                 }
             }
         }
@@ -1509,39 +1509,39 @@ private fun SessionCard(session: SessionRow) {
         "paused" -> Color(0xFFFFC078)
         else -> Muted
     }
-    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(26.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(session.user, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text(session.device, color = Muted, fontSize = 11.sp)
+                    Text(session.user, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text(session.device, color = Muted, fontSize = 13.sp)
                 }
                 Surface(color = stateColor.copy(alpha = 0.14f), shape = RoundedCornerShape(30.dp)) {
-                    Text(session.state.uppercase(), color = stateColor, fontSize = 9.sp,
+                    Text(session.state.uppercase(), color = stateColor, fontSize = 10.sp,
                         fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
                 }
             }
             Text(if (session.state == "idle") "No media currently playing" else session.title,
-                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Devices, contentDescription = null, tint = Accent, modifier = Modifier.size(14.dp))
                 Text(session.client + if (session.version != "Version unavailable") " · " + session.version else "",
-                    color = Muted, fontSize = 11.sp)
+                    color = Muted, fontSize = 13.sp)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.Schedule, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-                Text("Last activity: " + session.lastActivity, color = Muted, fontSize = 11.sp)
+                Text("Last activity: " + session.lastActivity, color = Muted, fontSize = 13.sp)
                 if (session.state == "idle") {
                     Text("·", color = Muted)
                     Text("Idle " + (session.idleSeconds?.let { formatDuration(it) } ?: "unknown"),
-                        color = stateColor, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                        color = stateColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 } else if (session.position > 0) {
                     Text("·", color = Muted)
                     Text((session.position / 10000000L / 60).toString() + " min in",
-                        color = Muted, fontSize = 11.sp)
+                        color = Muted, fontSize = 13.sp)
                 }
             }
         }
@@ -1552,29 +1552,29 @@ private fun SessionCard(session: SessionRow) {
 private fun LeaderboardCard(rank: Int, name: String, subtitle: String, value: Int,
     maxValue: Int, metricLabel: String) {
     val fraction = (value.toFloat() / maxValue.coerceAtLeast(1)).coerceIn(0f, 1f)
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(13.dp)) {
             Surface(color = if (rank == 1) Color(0xFF24453F) else PanelElevated,
                 shape = RoundedCornerShape(13.dp), modifier = Modifier.size(42.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(rank.toString().padStart(2, '0'),
-                        color = if (rank == 1) Accent else Muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        color = if (rank == 1) Accent else Muted, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, color = Muted, fontSize = 11.sp)
+                Text(name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, color = Muted, fontSize = 13.sp)
                 Box(Modifier.fillMaxWidth().height(5.dp).background(Border, RoundedCornerShape(8.dp))) {
                     Box(Modifier.fillMaxWidth(fraction).height(5.dp)
                         .background(Accent, RoundedCornerShape(8.dp)))
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(value.toString(), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(metricLabel, color = Muted, fontSize = 9.sp)
+                Text(value.toString(), color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                Text(metricLabel, color = Muted, fontSize = 10.sp)
             }
         }
     }
@@ -1582,22 +1582,22 @@ private fun LeaderboardCard(rank: Int, name: String, subtitle: String, value: In
 
 @Composable
 private fun InfoCard(title: String, heading: String, detail: String, extra: String) {
-    Surface(color = Panel, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title.uppercase(), color = Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text(heading, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            if (detail.isNotBlank()) Text(detail, color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
-            if (extra.isNotBlank()) Text(extra, color = Color(0xFFFF9A8B), fontSize = 12.sp)
+    Surface(color = Panel, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(heading, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            if (detail.isNotBlank()) Text(detail, color = Muted, fontSize = 15.sp, lineHeight = 19.sp)
+            if (extra.isNotBlank()) Text(extra, color = Color(0xFFFF9A8B), fontSize = 14.sp)
         }
     }
 }
 @Composable
 private fun ServerStatCard(value: String, label: String, modifier: Modifier = Modifier, valueColor: Color = Color.White) {
-    Surface(modifier = modifier.height(64.dp), color = Color(0xFF141720), shape = RoundedCornerShape(14.dp),
+    Surface(modifier = modifier.height(64.dp), color = Color(0xFF141720), shape = RoundedCornerShape(18.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
         Column(Modifier.padding(horizontal = 9.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(value, color = valueColor, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-            Text(label, color = Muted, fontSize = 9.sp, maxLines = 1)
+            Text(value, color = valueColor, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = Muted, fontSize = 10.sp, maxLines = 1)
         }
     }
 }
@@ -1605,7 +1605,7 @@ private fun ServerStatCard(value: String, label: String, modifier: Modifier = Mo
 @Composable
 private fun SectionHeading(value: String) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(value.uppercase(), color = Color.White, fontSize = 20.sp,
+        Text(value.uppercase(), color = Color.White, fontSize = 24.sp,
             fontWeight = FontWeight.Bold, letterSpacing = (-0.35).sp)
         Box(Modifier.width(34.dp).height(2.dp)
             .background(AccentPurple, RoundedCornerShape(2.dp)))
@@ -1621,23 +1621,23 @@ private fun HourlyTrendCard(
 ) {
     val values = points.map { if (showOnline) it.onlineUsers else it.uniqueUsers }
     val peak = values.maxOrNull() ?: 0
-    Surface(color = Panel, shape = RoundedCornerShape(18.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(title.uppercase(), color = Accent, fontSize = 10.sp,
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 11.sp,
                 fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-            Text(subtitle, color = Muted, fontSize = 11.sp)
+            Text(subtitle, color = Muted, fontSize = 13.sp)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text(peak.toString(), color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+                Text(peak.toString(), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                 Text(if (showOnline) "peak online" else "peak unique users/hour",
-                    color = Muted, fontSize = 10.sp, modifier = Modifier.padding(bottom = 4.dp))
+                    color = Muted, fontSize = 11.sp, modifier = Modifier.padding(bottom = 4.dp))
             }
             if (error.isNotBlank()) {
-                Text("24-hour history unavailable: $error", color = Color(0xFFFF9A8B), fontSize = 10.sp)
+                Text("24-hour history unavailable: $error", color = Color(0xFFFF9A8B), fontSize = 11.sp)
             } else if (points.none { (if (showOnline) it.onlineUsers else it.uniqueUsers) > 0 }) {
                 Text("Collecting hourly history. The graph will fill as the companion records sessions.",
-                    color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                    color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
             }
             Canvas(Modifier.fillMaxWidth().height(112.dp)) {
                 val left = 5f
@@ -1667,9 +1667,9 @@ private fun HourlyTrendCard(
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(points.firstOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
-                Text("24-hour window · Asia/Manila", color = Muted, fontSize = 9.sp)
-                Text(points.lastOrNull()?.hour ?: "—", color = Muted, fontSize = 9.sp)
+                Text(points.firstOrNull()?.hour ?: "—", color = Muted, fontSize = 10.sp)
+                Text("24-hour window · Asia/Manila", color = Muted, fontSize = 10.sp)
+                Text(points.lastOrNull()?.hour ?: "—", color = Muted, fontSize = 10.sp)
             }
         }
     }
@@ -1677,26 +1677,26 @@ private fun HourlyTrendCard(
 
 @Composable
 private fun RankingListCard(title: String, rows: List<AnalyticsRank>, emptyMessage: String) {
-    Surface(color = Panel, shape = RoundedCornerShape(18.dp),
+    Surface(color = Panel, shape = RoundedCornerShape(22.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Border),
         modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Text(title.uppercase(), color = Accent, fontSize = 10.sp,
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(title.uppercase(), color = Accent, fontSize = 11.sp,
                 fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             if (rows.isEmpty()) {
-                Text(emptyMessage, color = Muted, fontSize = 11.sp)
+                Text(emptyMessage, color = Muted, fontSize = 13.sp)
             } else rows.forEachIndexed { index, row ->
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     Text((index + 1).toString().padStart(2, '0'), color = AccentPurple,
-                        fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(row.title, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                        Text(row.title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
                             maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        if (row.detail.isNotBlank()) Text(row.detail, color = Muted, fontSize = 9.sp)
+                        if (row.detail.isNotBlank()) Text(row.detail, color = Muted, fontSize = 10.sp)
                     }
                     if (row.count > 0) Text(if (title.contains("watch time", true)) formatDuration(row.count.toLong()) else row.count.toString(),
-                        color = Accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 }
                 if (index != rows.lastIndex) Divider(color = Border.copy(alpha = 0.7f))
             }
@@ -1706,11 +1706,11 @@ private fun RankingListCard(title: String, rows: List<AnalyticsRank>, emptyMessa
 
 @Composable
 private fun MetricCard(title: String, value: String, detail: String, modifier: Modifier = Modifier) {
-    Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(title, color = Muted, fontSize = 11.sp)
-            Text(value, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text(detail, color = Accent, fontSize = 9.sp)
+    Surface(modifier = modifier, color = PanelElevated, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, Border)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, color = Muted, fontSize = 13.sp)
+            Text(value, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Text(detail, color = Accent, fontSize = 10.sp)
         }
     }
 }
